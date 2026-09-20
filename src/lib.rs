@@ -40,6 +40,7 @@
 //! # Ok::<(), vectorise::PlanError>(())
 //! ```
 
+pub mod cleanup;
 pub mod cli;
 pub mod color;
 pub mod decode;

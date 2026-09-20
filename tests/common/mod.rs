@@ -8,4 +8,5 @@
 // `pub` reads better and nothing outside the test binary can see it either way.
 #![allow(unreachable_pub)]
 
+pub mod degraded;
 pub mod fixtures;
