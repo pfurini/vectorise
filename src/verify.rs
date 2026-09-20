@@ -359,6 +359,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cli_verify_reports_fidelity_against_the_cleaned_image() {
+        use crate::cleanup::degraded::{Degradation, Fixture, degrade, png_bytes};
+        use crate::{Options, convert_one};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let input = dir.path().join("logo.png");
+        std::fs::write(
+            &input,
+            png_bytes(&degrade(Fixture::Logo, Degradation::Jpeg30)),
+        )
+        .expect("write");
+        let options = Options {
+            verify: true,
+            ..Options::new()
+        };
+        let converted =
+            convert_one(&input, &dir.path().join("logo.svg"), &options).expect("converts");
+        let reported = converted.stats.fidelity.expect("verified");
+
+        let decoded = crate::decode::decode(&input, options.decode).expect("decodes");
+        let (cleaned, report) = crate::cleanup::cleanup(&decoded, options.cleanup);
+        assert!(report.acted(), "{report:?}");
+
+        let against_cleaned = fidelity(&cleaned, &converted.svg, Rgb::WHITE)
+            .expect("verifies")
+            .score;
+        let against_raw = fidelity(&decoded, &converted.svg, Rgb::WHITE)
+            .expect("verifies")
+            .score;
+        assert!(
+            (reported - against_cleaned).abs() < 1e-12,
+            "fidelity is against the image the tracer saw: {reported} vs {against_cleaned}"
+        );
+        assert!(
+            (reported - against_raw).abs() > 1e-6,
+            "and that is not the raw input: {reported} vs {against_raw}"
+        );
+        assert_eq!(
+            converted.stats.cleanup_delta,
+            Some(report.changed_fraction),
+            "cleanup_delta says how far the two rasters are apart"
+        );
+    }
+
     fn disc_png() -> Vec<u8> {
         use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 

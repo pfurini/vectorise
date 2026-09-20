@@ -7,6 +7,19 @@ Release profile from `Cargo.toml`: `lto = "fat"`, `codegen-units = 1`,
 Re-measure at the end of every phase that adds a dependency, and explain any
 jump of more than 500 KB.
 
+## End of the cleanup work (`CLEANUP_IMPLEMENTATION_PLAN.md`)
+
+| Build | Size | Notes |
+|---|---|---|
+| `target/release/vectorise` | 10 017 808 | With the raster cleanup stage: two signals, two filters, three flags, five stats fields. |
+| end of Phase 9 | 9 968 160 | Before cleanup. |
+
+The 49 648 bytes added (0.5%) are the cleanup code itself. No dependency
+was added: both operators are hand-written against `image` and `rayon`,
+which were already linked (ADR-0010). Measured the same way as the rows
+below, on the same machine, from a clean build in a separate target
+directory for each of the two revisions.
+
 ## End of Phase 9
 
 | Build | Size | Notes |

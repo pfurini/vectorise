@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+use crate::cleanup::{CleanupMode, CleanupOptions};
 use crate::color::{ParseRgbError, Rgb, parse_palette};
 use crate::decode::DecodeOptions;
 use crate::plan::PlanOptions;
@@ -61,6 +62,22 @@ pub struct Cli {
     /// Emit width and height on the root element as well as viewBox.
     #[arg(long, help_heading = "Output")]
     pub keep_size: bool,
+
+    /// Clean the raster before tracing: flatten noise, steepen soft edges.
+    ///
+    /// Default: auto, or off under `--preset photo`. On a clean, sharp input
+    /// auto changes nothing, so the output is the same as with off.
+    #[arg(long, value_enum, value_name = "MODE", help_heading = "Preprocessing")]
+    pub cleanup: Option<CleanupMode>,
+
+    /// Flatten radius in pixels; 0 disables. Overrides what auto would pick.
+    #[arg(long, value_name = "PX", help_heading = "Preprocessing")]
+    pub denoise: Option<u8>,
+
+    /// Edge-steepening radius in pixels; 0 disables. Overrides what auto
+    /// would pick.
+    #[arg(long, value_name = "PX", help_heading = "Preprocessing")]
+    pub sharpen: Option<u8>,
 
     /// Color that transparency is resolved against, as `#rrggbb` or `#rgb`.
     ///
@@ -253,7 +270,81 @@ pub enum TraceOptionsError {
     },
 }
 
+/// Why the cleanup options could not be assembled from the command line.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CleanupOptionsError {
+    /// `--cleanup off` was given together with a radius, which contradicts it.
+    #[error("--cleanup off contradicts {flag}; drop one of them")]
+    OffWithRadius {
+        /// The radius flag that was also given.
+        flag: &'static str,
+    },
+}
+
+/// Why the options could not be assembled from the command line.
+#[derive(Debug, thiserror::Error)]
+pub enum OptionsError {
+    /// The tracing options.
+    #[error(transparent)]
+    Trace(#[from] TraceOptionsError),
+    /// The cleanup options.
+    #[error(transparent)]
+    Cleanup(#[from] CleanupOptionsError),
+}
+
 impl Cli {
+    /// The cleanup projection of these arguments.
+    ///
+    /// `--preset photo` makes `off` the default, because the operators assume
+    /// a piecewise-constant source and a photograph is not one. That is a
+    /// default, not a lock: an explicit `--cleanup auto`, `--denoise`, or
+    /// `--sharpen` wins over it. `--preset auto` is `poster` (ADR-0003) and
+    /// leaves cleanup on.
+    ///
+    /// # Errors
+    ///
+    /// [`CleanupOptionsError::OffWithRadius`] when `--cleanup off` is given
+    /// together with `--denoise` or `--sharpen`: the two contradict each
+    /// other, and guessing which one was meant would be worse than asking.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clap::Parser as _;
+    /// use vectorise::cleanup::CleanupMode;
+    /// use vectorise::cli::Cli;
+    ///
+    /// let cli = Cli::try_parse_from(["vectorise", "--preset", "photo", "a.png"]).expect("valid");
+    /// assert_eq!(cli.cleanup_options().expect("valid").mode, CleanupMode::Off);
+    ///
+    /// let cli = Cli::try_parse_from(["vectorise", "--preset", "photo", "--sharpen", "2", "a.png"])
+    ///     .expect("valid");
+    /// let options = cli.cleanup_options().expect("valid");
+    /// assert_eq!((options.mode, options.sharpen), (CleanupMode::Auto, Some(2)));
+    /// ```
+    pub fn cleanup_options(&self) -> Result<CleanupOptions, CleanupOptionsError> {
+        let radius_flag = match (self.denoise, self.sharpen) {
+            (Some(_), _) => Some("--denoise"),
+            (None, Some(_)) => Some("--sharpen"),
+            (None, None) => None,
+        };
+        let mode = match (self.cleanup, radius_flag) {
+            (Some(CleanupMode::Off), Some(flag)) => {
+                return Err(CleanupOptionsError::OffWithRadius { flag });
+            }
+            (Some(mode), _) => mode,
+            (None, None) if self.preset == Preset::Photo => CleanupMode::Off,
+            (None, _) => CleanupMode::Auto,
+        };
+        Ok(CleanupOptions {
+            mode,
+            denoise: self.denoise,
+            sharpen: self.sharpen,
+            // `run` decides per batch whether a conversion is alone.
+            parallel: true,
+        })
+    }
+
     /// The planning-relevant projection of these arguments.
     ///
     /// # Examples
@@ -344,10 +435,11 @@ impl Cli {
     ///
     /// # Errors
     ///
-    /// Whatever [`Cli::trace_options`] returns.
-    pub fn options(&self) -> Result<Options, TraceOptionsError> {
+    /// Whatever [`Cli::trace_options`] or [`Cli::cleanup_options`] returns.
+    pub fn options(&self) -> Result<Options, OptionsError> {
         Ok(Options {
             decode: self.decode_options(),
+            cleanup: self.cleanup_options()?,
             trace: self.trace_options()?,
             shapes: self.shape_options(),
             writer: self.writer_options(),
@@ -359,13 +451,15 @@ impl Cli {
 
     /// The exit code for a command line that could not be turned into options.
     ///
-    /// A palette that does not parse is a usage error; a palette file that
-    /// cannot be read is an I/O error outside any per-file conversion.
+    /// A palette that does not parse, or a contradictory pair of cleanup
+    /// flags, is a usage error; a palette file that cannot be read is an I/O
+    /// error outside any per-file conversion.
     #[must_use]
-    pub const fn exit_code_for(error: &TraceOptionsError) -> ExitCode {
+    pub const fn exit_code_for(error: &OptionsError) -> ExitCode {
         match error {
-            TraceOptionsError::PaletteFile { .. } => ExitCode::Io,
-            TraceOptionsError::Palette { .. } => ExitCode::Usage,
+            OptionsError::Trace(TraceOptionsError::PaletteFile { .. }) => ExitCode::Io,
+            OptionsError::Trace(TraceOptionsError::Palette { .. })
+            | OptionsError::Cleanup(CleanupOptionsError::OffWithRadius { .. }) => ExitCode::Usage,
         }
     }
 
@@ -801,6 +895,109 @@ mod tests {
                 .expect("parses");
         let error = missing_file.options().expect_err("rejected");
         assert_eq!(Cli::exit_code_for(&error), ExitCode::Io);
+    }
+
+    #[test]
+    fn cli_cleanup_defaults_to_auto_with_no_radii() {
+        use crate::cleanup::{CleanupMode, CleanupOptions};
+
+        let cli = Cli::try_parse_from(["vectorise", "a.png"]).expect("parses");
+        assert_eq!(cli.cleanup, None, "the flag is absent, not auto");
+        let options = cli.cleanup_options().expect("valid");
+        assert_eq!(options.mode, CleanupMode::Auto);
+        assert_eq!((options.denoise, options.sharpen), (None, None));
+        assert_eq!(options, CleanupOptions::default());
+        assert_eq!(cli.options().expect("valid").cleanup, options);
+    }
+
+    #[test]
+    fn cli_cleanup_radii_reach_the_pass() {
+        use crate::cleanup::CleanupMode;
+
+        let cli = Cli::try_parse_from(["vectorise", "--denoise", "2", "--sharpen", "0", "a.png"])
+            .expect("parses");
+        let options = cli.cleanup_options().expect("valid");
+        assert_eq!(options.mode, CleanupMode::Auto);
+        assert_eq!((options.denoise, options.sharpen), (Some(2), Some(0)));
+    }
+
+    #[test]
+    fn cli_preset_photo_implies_cleanup_off() {
+        use crate::cleanup::CleanupMode;
+
+        let cli = Cli::try_parse_from(["vectorise", "--preset", "photo", "a.png"]).expect("parses");
+        assert_eq!(cli.cleanup_options().expect("valid").mode, CleanupMode::Off);
+    }
+
+    #[test]
+    fn cli_preset_photo_with_explicit_cleanup_auto_runs_cleanup() {
+        use crate::cleanup::CleanupMode;
+
+        let cli = Cli::try_parse_from([
+            "vectorise",
+            "--preset",
+            "photo",
+            "--cleanup",
+            "auto",
+            "a.png",
+        ])
+        .expect("parses");
+        assert_eq!(
+            cli.cleanup_options().expect("valid").mode,
+            CleanupMode::Auto
+        );
+    }
+
+    #[test]
+    fn cli_preset_photo_with_explicit_radius_runs_cleanup() {
+        use crate::cleanup::CleanupMode;
+
+        for flag in ["--denoise", "--sharpen"] {
+            let cli = Cli::try_parse_from(["vectorise", "--preset", "photo", flag, "2", "a.png"])
+                .expect("parses");
+            let options = cli.cleanup_options().expect("valid");
+            assert_eq!(options.mode, CleanupMode::Auto, "{flag}");
+        }
+    }
+
+    #[test]
+    fn cli_preset_auto_and_others_leave_cleanup_on() {
+        use crate::cleanup::CleanupMode;
+
+        for preset in ["auto", "poster", "bw"] {
+            let cli =
+                Cli::try_parse_from(["vectorise", "--preset", preset, "a.png"]).expect("parses");
+            assert_eq!(
+                cli.cleanup_options().expect("valid").mode,
+                CleanupMode::Auto,
+                "{preset}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_cleanup_off_with_a_radius_is_a_typed_usage_error() {
+        use crate::error::ExitCode;
+
+        for (flag, expected) in [("--denoise", "--denoise"), ("--sharpen", "--sharpen")] {
+            let cli = Cli::try_parse_from(["vectorise", "--cleanup", "off", flag, "2", "a.png"])
+                .expect("parses");
+            let error = cli.cleanup_options().expect_err("contradictory");
+            assert_eq!(
+                error,
+                super::CleanupOptionsError::OffWithRadius { flag: expected }
+            );
+            let error = cli.options().expect_err("contradictory");
+            assert_eq!(Cli::exit_code_for(&error), ExitCode::Usage);
+            assert!(error.to_string().contains("--cleanup off"), "{error}");
+        }
+        // Explicit off without a radius is fine, and so is auto with one.
+        let cli = Cli::try_parse_from(["vectorise", "--cleanup", "off", "a.png"]).expect("parses");
+        assert!(cli.cleanup_options().is_ok());
+        let cli =
+            Cli::try_parse_from(["vectorise", "--cleanup", "auto", "--denoise", "1", "a.png"])
+                .expect("parses");
+        assert!(cli.cleanup_options().is_ok());
     }
 
     #[test]

@@ -34,6 +34,23 @@ Output:
       --keep-size
           Emit width and height on the root element as well as viewBox
 
+Preprocessing:
+      --cleanup <MODE>
+          Clean the raster before tracing: flatten noise, steepen soft edges.
+          
+          Default: auto, or off under `--preset photo`. On a clean, sharp input auto changes
+          nothing, so the output is the same as with off.
+
+          Possible values:
+          - auto: Measure the raster and choose both radii from what it finds
+          - off:  Leave the raster exactly as decoded
+
+      --denoise <PX>
+          Flatten radius in pixels; 0 disables. Overrides what auto would pick
+
+      --sharpen <PX>
+          Edge-steepening radius in pixels; 0 disables. Overrides what auto would pick
+
 Tracing:
       --background <COLOR>
           Color that transparency is resolved against, as `#rrggbb` or `#rgb`.

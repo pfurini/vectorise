@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A raster cleanup stage between decoding and tracing, on by default. It
+  measures how blurred and how noisy the input is, flattens noise with a
+  Kuwahara filter, and steepens soft edges with morphological toggle
+  contrast, choosing each radius from its own measurement. On a clean, sharp
+  input it changes nothing, byte for byte. On the plan's 24-case matrix of
+  blurred, downscaled, and JPEG-damaged fixtures it makes the output 6.7x
+  smaller in total, never larger, and closer to the original drawing in every
+  case (ADR-0010).
+- `--cleanup <auto|off>`, `--denoise <PX>`, and `--sharpen <PX>`. `--cleanup
+  off` restores the v0.1.0 pipeline exactly; a radius overrides the automatic
+  choice for that operator. `--preset photo` makes `off` the default, and an
+  explicit flag still wins over it. `--cleanup off` together with a radius is a
+  usage error.
+- `--stats` reports what cleanup measured and did (`cleanup d3 s2 (blur 4.1px,
+  noise 0.166)`), and `--stats-json` gains `edge_width`, `flat_noise`,
+  `cleanup_denoise`, `cleanup_sharpen`, and `cleanup_delta`, present only when
+  cleanup changed something.
+- `docs/adr/0010-raster-cleanup-operators.md` and
+  `docs/adr/0011-verify-measures-against-the-cleaned-image.md`.
+
+### Changed
+
+- `--verify` measures `fidelity` against the image the tracer saw, which is
+  the cleaned raster when cleanup acted and the decoded input otherwise;
+  `cleanup_delta` reports how far the two are apart (ADR-0011). With
+  `--cleanup off` the number means exactly what it meant in 0.1.0.
+- `vectorise::Options` gains `cleanup`, and `Cli::options` returns
+  `cli::OptionsError`, which wraps the tracing and cleanup option errors.
+
 ## [0.1.0] - 2026-09-20
 
 ### Added

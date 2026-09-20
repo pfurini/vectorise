@@ -11,7 +11,7 @@
 //! # The pipeline
 //!
 //! ```text
-//! file ──▶ decode ──▶ trace ──▶ shapes ──▶ writer ──▶ optimize ──▶ output
+//! file ──▶ decode ──▶ cleanup ──▶ trace ──▶ shapes ──▶ writer ──▶ optimize ──▶ output
 //! ```
 //!
 //! Each stage is a module with one job and its own typed error. [`convert_one`]
@@ -59,6 +59,7 @@ use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 
+use crate::cleanup::CleanupOptions;
 use crate::decode::{DecodeError, DecodeOptions};
 use crate::error::ExitCode;
 use crate::optimize::OptimizeError;
@@ -76,6 +77,8 @@ pub use plan::{Job, Plan, PlanError, PlanOptions, PlanProblem, plan};
 pub struct Options {
     /// How transparency is resolved when reading.
     pub decode: DecodeOptions,
+    /// How the raster is cleaned before tracing.
+    pub cleanup: CleanupOptions,
     /// How the image is traced.
     pub trace: TraceOptions,
     /// How hard shape detection tries.
@@ -192,6 +195,17 @@ pub fn convert_one(
         "decoded"
     );
 
+    let (image, cleaned) = cleanup::cleanup(&image, options.cleanup);
+    tracing::debug!(
+        input = %input.display(),
+        edge_width = ?cleaned.edge_width,
+        flat_noise = cleaned.flat_noise,
+        denoise = cleaned.denoise,
+        sharpen = cleaned.sharpen,
+        delta = cleaned.changed_fraction,
+        "cleaned"
+    );
+
     let traced = trace::trace(&image, &options.trace).map_err(|source| ConvertError::Trace {
         path: input.to_path_buf(),
         source,
@@ -223,6 +237,7 @@ pub fn convert_one(
     };
 
     let mut stats = Stats::of(input, output, &fitted, &svg);
+    stats.record_cleanup(&cleaned);
     if options.verify {
         let measured =
             verify::fidelity(&image, &svg, options.decode.background).map_err(|source| {
@@ -308,6 +323,17 @@ impl From<&RunReport> for ExitCode {
 #[must_use]
 pub fn run(plan: &Plan, options: &Options, jobs: usize) -> RunReport {
     let started = std::time::Instant::now();
+    // A conversion that has the machine to itself may split its cleanup
+    // filters over the cores; one in a batch that already fills them may
+    // not. The output is the same either way.
+    let options = Options {
+        cleanup: CleanupOptions {
+            parallel: jobs <= 1 || plan.jobs.len() <= 1,
+            ..options.cleanup
+        },
+        ..options.clone()
+    };
+    let options = &options;
     let results: Vec<(Job, Result<Converted, ConvertError>)> = if jobs <= 1 {
         plan.jobs
             .iter()
@@ -397,6 +423,57 @@ mod tests {
             "the disc is detected: {}",
             converted.svg
         );
+    }
+
+    #[test]
+    fn convert_one_runs_cleanup_between_decode_and_trace() {
+        use crate::cleanup::CleanupOptions;
+        use crate::cleanup::degraded::{Degradation, Fixture, degrade, png_bytes};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let input = dir.path().join("logo.png");
+        std::fs::write(
+            &input,
+            png_bytes(&degrade(Fixture::Logo, Degradation::Jpeg30)),
+        )
+        .expect("write");
+        let output = dir.path().join("logo.svg");
+
+        let auto = convert_one(&input, &output, &Options::new()).expect("converts");
+        assert_eq!(auto.stats.cleanup_denoise, Some(3), "{:?}", auto.stats);
+        assert_eq!(auto.stats.cleanup_sharpen, Some(0));
+        assert!(auto.stats.flat_noise.expect("measured") > 0.05);
+        assert!(auto.stats.cleanup_delta.expect("reported") > 0.0);
+
+        let off = convert_one(
+            &input,
+            &output,
+            &Options {
+                cleanup: CleanupOptions::off(),
+                ..Options::new()
+            },
+        )
+        .expect("converts");
+        assert_eq!(off.stats.cleanup_denoise, None, "nothing to report");
+        assert_eq!(off.stats.cleanup_delta, None);
+        assert!(
+            auto.svg.len() * 4 < off.svg.len(),
+            "cleanup shrinks a noisy logo several times over: {} vs {}",
+            auto.svg.len(),
+            off.svg.len()
+        );
+    }
+
+    #[test]
+    fn convert_one_reports_nothing_when_cleanup_did_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let input = dir.path().join("disc.png");
+        std::fs::write(&input, disc_png()).expect("write");
+        let converted =
+            convert_one(&input, &dir.path().join("disc.svg"), &Options::new()).expect("converts");
+        assert_eq!(converted.stats.cleanup_denoise, None);
+        assert_eq!(converted.stats.edge_width, None);
+        assert_eq!(converted.stats.cleanup_delta, None);
     }
 
     #[test]

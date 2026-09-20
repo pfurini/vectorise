@@ -10,8 +10,11 @@ Convert raster images into maximally compact, standard-compliant SVG.
 [VTracer](https://crates.io/crates/vtracer), then does what a tracer alone
 cannot: every traced region that is geometrically indistinguishable from a
 circle, ellipse, or rectangle is emitted as that **native SVG element** instead
-of a Bézier path. The document is minified last. The output is smaller, and it
-is still markup a human can read and edit.
+of a Bézier path. Before tracing, a blurred or JPEG-damaged input is cleaned
+up so that soft edges and compression noise do not turn into hundreds of
+sliver shapes; a clean input passes through untouched. The document is
+minified last. The output is smaller, and it is still markup a human can read
+and edit.
 
 One self-contained binary. No runtime dependencies, no subprocesses, no network.
 
@@ -79,6 +82,12 @@ Output:
   -n, --dry-run            Print the input to output plan and exit
       --keep-size          Emit width and height as well as viewBox
 
+Preprocessing:
+      --cleanup <auto|off>          Clean the raster before tracing
+                                    [default: auto; off under --preset photo]
+      --denoise <PX>                Flatten radius; 0 disables. Overrides auto
+      --sharpen <PX>                Edge-steepening radius; 0 disables. Overrides auto
+
 Tracing:
       --background <COLOR>          Color transparency resolves against [default: #ffffff]
       --preset <bw|poster|photo|auto>                             [default: auto]
@@ -129,7 +138,10 @@ total: 1 file(s)  280 -> 164 bytes (59%)  2 shapes, 0 paths  7 ms
 ```
 
 `--verify` renders the SVG back at the input's pixel size and reports
-`1 - mean absolute error`, so 1.0 means every pixel matched. `--stats-json`
+`1 - mean absolute error`, so 1.0 means every pixel matched. When cleanup
+changed the raster, the line also says what it measured and did, fidelity is
+against the cleaned raster, and `cleanup_delta` in the JSON says how far that
+is from the file (see "Blurry or low-quality input" below). `--stats-json`
 prints the same numbers as one JSON object per line on stdout, leaving stderr
 for messages:
 
@@ -189,6 +201,44 @@ are still larger than the input. JPEG is very good at a small lossy raster, and
 a faithful vector of a many-cornered shape is not small. `--stats` exists so
 that this is visible rather than surprising.
 
+**4. Blurry or low-quality input.** A logo that was saved as a low-quality
+JPEG, scaled up from a thumbnail, or blurred traces into a halo of sliver
+shapes along every edge, because the soft transition band between two flat
+colours clusters into regions of its own. No tracing option fixes that after
+the fact, so `vectorise` cleans the raster first: it measures how blurred and
+how noisy the input is, flattens noise with a Kuwahara filter, and steepens
+soft edges with morphological toggle contrast. This is on by default. The
+same four-colour logo, once as a quality-30 JPEG and once clean:
+
+```
+$ vectorise logo-jpeg30.png --stats --verify --cleanup off
+logo-jpeg30.png -> logo-jpeg30.svg  19662 -> 18848 bytes (96%)  90 colors  100 shapes (1 circle, 12 ellipse, 2 rect, 0 rounded, 85 path, 842 cmds)  151 ms fidelity 0.9919
+
+$ vectorise logo-jpeg30.png --stats --verify --force
+logo-jpeg30.png -> logo-jpeg30.svg  19662 -> 1239 bytes (6%)  7 colors  7 shapes (1 circle, 1 ellipse, 2 rect, 0 rounded, 3 path, 39 cmds)  cleanup d3 s0 (blur 1.5px, noise 0.178)  178 ms fidelity 0.9942
+
+$ vectorise logo-clean.png --stats --verify
+logo-clean.png -> logo-clean.svg  6809 -> 875 bytes (13%)  5 colors  5 shapes (1 circle, 1 ellipse, 2 rect, 0 rounded, 1 path, 22 cmds)  164 ms fidelity 0.9953
+```
+
+15x smaller, with 7 shapes instead of 100, and the clean file comes out
+byte-identical to what it was before cleanup existed: the pass measured it as
+sharp and quiet and did nothing. The `cleanup d3 s0 (blur 1.5px, noise
+0.178)` segment says what was measured (edges 1.5 px wide, 0.178 levels of
+noise in flat regions) and what was applied (denoise radius 3, no
+sharpening).
+
+Two things to know. First, with cleanup active, `fidelity` is measured
+against the cleaned raster, because that is what the tracer was asked to
+reproduce; faithfully reproducing a *blurry* raster would require the busy
+document cleanup exists to avoid. `--stats-json` adds `cleanup_delta`, the
+mean absolute error between the cleaned raster and the file, so both numbers
+are visible (ADR-0011). Second, `--preset photo` turns cleanup off, because
+the operators assume flat colour and a photograph is not; an explicit
+`--cleanup auto`, `--denoise`, or `--sharpen` still wins over that default.
+`--cleanup off` restores the pre-cleanup pipeline exactly, and either radius
+can be forced by hand.
+
 | Symptom | Try |
 |---|---|
 | A large circle or oval came out as a `<path>` | `--segment-length 1`; see `docs/shape-detection.md` |
@@ -196,6 +246,8 @@ that this is visible rather than surprising.
 | Output is still large | `--simplify 1.5`, `--precision 1` |
 | Shapes were detected that should not have been | lower `--shape-tolerance`, or `--shapes off` |
 | A photograph looks blotchy | `--preset photo` |
+| A blurry, upscaled, or JPEG-damaged logo traces into slivers | it is cleaned up automatically; check the `cleanup` segment of `--stats`, and force `--denoise` or `--sharpen` if the automatic choice was too timid |
+| Cleanup rounded off detail that was meant to be there | `--sharpen 0`, `--denoise 0`, or `--cleanup off` |
 
 ## Exit codes
 

@@ -1,0 +1,26 @@
+---
+source: tests/cli.rs
+expression: "serde_json::to_string_pretty(&schema).expect(\"serializes\")"
+---
+{
+  "cleanup_delta": "number",
+  "cleanup_denoise": "integer",
+  "cleanup_sharpen": "integer",
+  "colors": "integer",
+  "edge_width": "number",
+  "elapsed_ms": "integer",
+  "fidelity": "number",
+  "flat_noise": "number",
+  "input": "string",
+  "input_bytes": "integer",
+  "output": "string",
+  "output_bytes": "integer",
+  "path_commands": "integer",
+  "primitives": {
+    "circles": 1,
+    "ellipses": 1,
+    "paths": 3,
+    "rects": 2,
+    "rounded_rects": 0
+  }
+}

@@ -56,3 +56,10 @@ survived", not "how good does this look".
 second column in `--stats`, and a `--metric` flag if both are wanted. It should
 arrive with a permissively licensed implementation and a documented parameter
 set, not with a hand-rolled one.
+
+## Amendment (2026-09-20)
+
+Since the cleanup stage (ADR-0010), the reference image is the one the tracer
+saw, which is the decoded input only when cleanup changed nothing. ADR-0011
+records that decision and the second number, `cleanup_delta`, that reports
+what cleanup changed. The metric itself is unchanged.

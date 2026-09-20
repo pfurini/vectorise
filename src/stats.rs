@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::cleanup::Cleanup;
 use crate::shapes::{Prim, ShapeDoc};
 
 /// A byte count as a float, for a ratio.
@@ -91,8 +92,31 @@ pub struct Stats {
     pub path_commands: usize,
     /// Wall-clock time for this file.
     pub elapsed_ms: u64,
-    /// `1 - mean absolute error` against the input, when `--verify` asked.
+    /// `1 - mean absolute error` against the image the tracer saw, when
+    /// `--verify` asked. With cleanup off, or when it did nothing, that is the
+    /// decoded input; otherwise it is the cleaned raster, and `cleanup_delta`
+    /// says how far the two are apart (ADR-0011).
     pub fidelity: Option<f64>,
+    /// Mean absolute error between the cleaned raster and the decoded input,
+    /// over RGB, in `0..=1`. Present only when cleanup changed something.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanup_delta: Option<f64>,
+    /// Median 10% to 90% edge rise cleanup measured, in pixels. Present only
+    /// when cleanup changed something; `None` inside means too few edges.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge_width: Option<f32>,
+    /// Deviation from the 3x3 median over flat pixels, in luminance levels.
+    /// Present only when cleanup changed something.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flat_noise: Option<f32>,
+    /// The Kuwahara radius cleanup applied. Present only when cleanup
+    /// changed something.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanup_denoise: Option<u8>,
+    /// The toggle contrast radius cleanup applied. Present only when cleanup
+    /// changed something.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanup_sharpen: Option<u8>,
 }
 
 impl Stats {
@@ -124,7 +148,27 @@ impl Stats {
             path_commands,
             elapsed_ms: 0,
             fidelity: None,
+            cleanup_delta: None,
+            edge_width: None,
+            flat_noise: None,
+            cleanup_denoise: None,
+            cleanup_sharpen: None,
         }
+    }
+
+    /// Record what the cleanup pass did, when it did anything.
+    ///
+    /// A pass that changed nothing leaves every field `None`, so a clean
+    /// input reports exactly what it reported before the pass existed.
+    pub const fn record_cleanup(&mut self, cleanup: &Cleanup) {
+        if !cleanup.acted() {
+            return;
+        }
+        self.cleanup_delta = Some(cleanup.changed_fraction);
+        self.edge_width = cleanup.edge_width;
+        self.flat_noise = Some(cleanup.flat_noise);
+        self.cleanup_denoise = Some(cleanup.denoise);
+        self.cleanup_sharpen = Some(cleanup.sharpen);
     }
 
     /// Output size as a fraction of input size. `None` for an empty input.
@@ -154,9 +198,19 @@ impl Stats {
         let fidelity = self
             .fidelity
             .map_or_else(String::new, |score| format!(" fidelity {score:.4}"));
+        let cleanup = match (self.cleanup_denoise, self.cleanup_sharpen) {
+            (Some(denoise), Some(sharpen)) => {
+                let blur = self
+                    .edge_width
+                    .map_or_else(|| "-".to_owned(), |width| format!("{width:.1}px"));
+                let noise = self.flat_noise.unwrap_or(0.0);
+                format!("cleanup d{denoise} s{sharpen} (blur {blur}, noise {noise:.3})  ")
+            }
+            _ => String::new(),
+        };
 
         format!(
-            "{} -> {}  {} -> {} bytes ({ratio})  {} colors  {} shapes ({} circle, {} ellipse, {} rect, {} rounded, {} path, {} cmds)  {} ms{fidelity}",
+            "{} -> {}  {} -> {} bytes ({ratio})  {} colors  {} shapes ({} circle, {} ellipse, {} rect, {} rounded, {} path, {} cmds)  {cleanup}{} ms{fidelity}",
             self.input.display(),
             self.output.display(),
             self.input_bytes,
@@ -388,6 +442,70 @@ mod tests {
     }
 
     #[test]
+    fn stats_line_reports_cleanup_only_when_it_acted() {
+        use crate::cleanup::Cleanup;
+
+        let doc = sample_doc();
+        let mut stats = Stats::of(Path::new("logo.png"), Path::new("logo.svg"), &doc, "<svg/>");
+        stats.record_cleanup(&Cleanup {
+            edge_width: Some(1.2),
+            flat_noise: 0.001,
+            denoise: 0,
+            sharpen: 0,
+            changed_fraction: 0.0,
+        });
+        assert!(!stats.to_line().contains("cleanup"), "{}", stats.to_line());
+        assert_eq!(stats.cleanup_denoise, None);
+
+        stats.record_cleanup(&Cleanup {
+            edge_width: Some(4.13),
+            flat_noise: 0.166,
+            denoise: 3,
+            sharpen: 2,
+            changed_fraction: 0.0123,
+        });
+        let line = stats.to_line();
+        assert!(
+            line.contains("cleanup d3 s2 (blur 4.1px, noise 0.166)"),
+            "{line}"
+        );
+        assert_eq!(stats.cleanup_delta, Some(0.0123));
+
+        stats.record_cleanup(&Cleanup {
+            edge_width: None,
+            flat_noise: 0.2,
+            denoise: 3,
+            sharpen: 0,
+            changed_fraction: 0.01,
+        });
+        assert!(
+            stats.to_line().contains("(blur -, noise 0.200)"),
+            "{}",
+            stats.to_line()
+        );
+    }
+
+    #[test]
+    fn stats_json_omits_cleanup_fields_when_cleanup_did_nothing() {
+        let doc = sample_doc();
+        let stats = Stats::of(Path::new("a.png"), Path::new("a.svg"), &doc, "<svg/>");
+        let line = serde_json::to_string(&stats).expect("serializes");
+        for field in [
+            "cleanup_delta",
+            "edge_width",
+            "flat_noise",
+            "cleanup_denoise",
+            "cleanup_sharpen",
+        ] {
+            assert!(!line.contains(field), "{field} in {line}");
+        }
+        assert!(
+            line.contains("\"fidelity\":null"),
+            "fidelity keeps its v0.1.0 shape: {line}"
+        );
+    }
+
+    #[test]
     fn stats_line_omits_fidelity_when_it_was_not_measured() {
         let doc = sample_doc();
         let stats = Stats::of(Path::new("a.png"), Path::new("a.svg"), &doc, "<svg/>");
@@ -424,6 +542,14 @@ mod tests {
         // Zeroed, because a wall clock is not a stable snapshot.
         stats.elapsed_ms = 0;
         stats.fidelity = Some(0.9876);
+        // Every optional field present, so the snapshot documents the schema.
+        stats.record_cleanup(&crate::cleanup::Cleanup {
+            edge_width: Some(4.5),
+            flat_noise: 0.125,
+            denoise: 3,
+            sharpen: 2,
+            changed_fraction: 0.0125,
+        });
 
         let line = serde_json::to_string(&stats).expect("serializes");
         assert!(!line.contains('\n'), "one object per line");

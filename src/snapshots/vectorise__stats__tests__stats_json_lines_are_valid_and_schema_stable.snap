@@ -2,4 +2,4 @@
 source: src/stats.rs
 expression: line
 ---
-{"input":"logo.png","output":"logo.svg","input_bytes":2048,"output_bytes":312,"colors":4,"primitives":{"circles":1,"ellipses":1,"rects":1,"rounded_rects":1,"paths":1},"path_commands":4,"elapsed_ms":0,"fidelity":0.9876}
+{"input":"logo.png","output":"logo.svg","input_bytes":2048,"output_bytes":312,"colors":4,"primitives":{"circles":1,"ellipses":1,"rects":1,"rounded_rects":1,"paths":1},"path_commands":4,"elapsed_ms":0,"fidelity":0.9876,"cleanup_delta":0.0125,"edge_width":4.5,"flat_noise":0.125,"cleanup_denoise":3,"cleanup_sharpen":2}

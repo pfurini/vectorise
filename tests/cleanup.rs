@@ -145,3 +145,22 @@ fn auto_never_increases_output_bytes_and_improves_fidelity_on_every_degraded_cel
 
     insta::assert_snapshot!(table);
 }
+
+/// Write every cell's input as a PNG under `target/fixtures/`, for looking at
+/// the pass by hand: `cargo nextest run --test cleanup --run-ignored all dump`.
+#[test]
+#[ignore = "writes files for manual acceptance; not a check"]
+fn dump_fixtures_for_manual_acceptance() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/fixtures");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    for fixture in Fixture::ALL {
+        for degradation in Degradation::ALL {
+            let name = format!("{}-{}.png", fixture.name(), degradation.name());
+            std::fs::write(
+                dir.join(name),
+                common::degraded::png_bytes(&degrade(fixture, degradation)),
+            )
+            .expect("write");
+        }
+    }
+}

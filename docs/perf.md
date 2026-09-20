@@ -135,6 +135,31 @@ a many-cornered shape is not small. The tool's job is the smallest *faithful
 vector*, not the smallest file of any kind, and `--stats` is there so this is
 visible rather than surprising.
 
+## Cleanup acceptance run
+
+The manual acceptance from `CLEANUP_IMPLEMENTATION_PLAN.md` §5, on a real
+downloaded logo: the 120 px thumbnail of the Rust logo from Wikimedia Commons
+(a grey-plus-alpha PNG), then the same file saved as a quality-20 JPEG with
+macOS `sips`, then scaled up three times and saved at quality 20 again. Debug
+build, `--stats --verify`, `--cleanup off` against the default.
+
+| Input | Cleanup | Output | Shapes | Commands | Fidelity | Time |
+|---|---|---:|---:|---:|---:|---:|
+| clean PNG, 120 px | off | 3 885 B | 1 | 190 | 0.9193 | 23 ms |
+| clean PNG, 120 px | auto: did nothing | 3 885 B, byte-identical | 1 | 190 | 0.9193 | 36 ms |
+| JPEG quality 20, 120 px | off | 38 775 B | 145 | 1 893 | 0.9446 | 135 ms |
+| JPEG quality 20, 120 px | auto: `d3 s0 (blur 1.6px, noise 1.713)` | 16 597 B | 58 | 805 | 0.9675 | 101 ms |
+| upscaled 3x, JPEG quality 20, 360 px | off | 291 687 B | 828 | 14 313 | 0.9799 | 1 073 ms |
+| upscaled 3x, JPEG quality 20, 360 px | auto: `d3 s2 (blur 4.8px, noise 0.390)` | 36 666 B | 136 | 1 645 | 0.9845 | 512 ms |
+
+The clean file is the no-op guarantee on a real input. The two damaged ones
+convert 2.3x and 8x smaller, closer to the drawing by the tool's own
+measure, and the upscaled one in half the time, because there is far less
+geometry to fit once the halo of slivers is gone. Fidelity here is against
+the cleaned raster (ADR-0011); the clean file's low absolute score is the
+grey-plus-alpha thumbnail's anti-aliased edge against a one-path trace, the
+same with cleanup on or off.
+
 ## Still to do
 
 The plan asks for baseline numbers from both CI runners. These are from the
