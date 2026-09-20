@@ -25,3 +25,6 @@
 
 pub mod cli;
 pub mod error;
+pub mod plan;
+
+pub use plan::{Job, Plan, PlanError, PlanOptions, PlanProblem, plan};

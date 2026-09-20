@@ -7,6 +7,7 @@ use clap::Parser as _;
 use clap::error::ErrorKind;
 use vectorise::cli::Cli;
 use vectorise::error::ExitCode;
+use vectorise::plan::{Plan, PlanError};
 
 fn main() -> ProcessExitCode {
     let cli = match Cli::try_parse() {
@@ -14,9 +15,15 @@ fn main() -> ProcessExitCode {
         Err(err) => return report_parse_error(&err),
     };
 
-    // Phase 2 replaces this with `vectorise::plan(...)` and `vectorise::run(...)`.
-    for input in &cli.inputs {
-        eprintln!("info: {} (not converted yet: Phase 2)", input.display());
+    let plan = match vectorise::plan(&cli.inputs, &cli.plan_options()) {
+        Ok(plan) => plan,
+        Err(err) => return report_plan_error(&err),
+    };
+
+    print_mapping(&plan);
+    if !cli.dry_run {
+        // Phase 8 replaces this with `vectorise::run(&plan, ...)`.
+        eprintln!("info: conversion is wired up in Phase 8; nothing was written");
     }
     ExitCode::Ok.into()
 }
@@ -31,5 +38,20 @@ fn report_parse_error(err: &clap::Error) -> ProcessExitCode {
     match err.kind() {
         ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => ExitCode::Ok.into(),
         _ => ExitCode::Usage.into(),
+    }
+}
+
+/// List every reason the batch was rejected, one machine-readable line each.
+fn report_plan_error(err: &PlanError) -> ProcessExitCode {
+    for problem in &err.problems {
+        eprintln!("error: {problem}");
+    }
+    ExitCode::Preflight.into()
+}
+
+/// The input-to-output plan, one line per job, on stdout so it can be piped.
+fn print_mapping(plan: &Plan) {
+    for job in &plan.jobs {
+        println!("{}\t{}", job.input.display(), job.output.display());
     }
 }
