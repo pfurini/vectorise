@@ -31,5 +31,6 @@ pub mod geom;
 pub mod plan;
 pub mod shapes;
 pub mod trace;
+pub mod writer;
 
 pub use plan::{Job, Plan, PlanError, PlanOptions, PlanProblem, plan};

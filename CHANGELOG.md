@@ -35,8 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--min-shape-area`, `--no-rotated-ellipses`.
 - `--corner-threshold` and `--segment-length`, which control how closely the
   tracer fits a curve and therefore whether large smooth shapes are detected.
+- SVG writer: `vectorise::writer` serializes a `ShapeDoc` to minimal SVG with
+  no prolog, no comments, and no groups; shortest-form hex fills, shortest-form
+  numbers, and relative path commands with `h`, `v`, and `s` shorthands.
+  `--precision` and `--keep-size`.
 - `docs/adr/0001-language-and-stack.md`, `docs/adr/0002-output-dir-flattens.md`,
   `docs/adr/0003-preset-auto.md`, `docs/adr/0004-no-rotated-rectangles.md`,
-  `docs/shape-detection.md`, `docs/size.md`.
+  `docs/adr/0005-no-group-merging.md`, `docs/shape-detection.md`,
+  `docs/size.md`.
 
 [Unreleased]: https://github.com/pfurini/vectorise/compare/HEAD

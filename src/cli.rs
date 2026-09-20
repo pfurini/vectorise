@@ -15,6 +15,7 @@ use crate::decode::DecodeOptions;
 use crate::plan::PlanOptions;
 use crate::shapes::{Detect, ShapeFitOptions};
 use crate::trace::{Clustering, FitMode, Hierarchical, Preset, TraceOptions};
+use crate::writer::{MAX_PRECISION, WriterOptions};
 
 /// Convert raster images into maximally compact SVG.
 ///
@@ -55,6 +56,10 @@ pub struct Cli {
     /// Print the input to output plan and exit.
     #[arg(short = 'n', long, help_heading = "Output")]
     pub dry_run: bool,
+
+    /// Emit width and height on the root element as well as viewBox.
+    #[arg(long, help_heading = "Output")]
+    pub keep_size: bool,
 
     /// Color that transparency is resolved against, as `#rrggbb` or `#rgb`.
     ///
@@ -166,6 +171,17 @@ pub struct Cli {
     /// Keep rotated ellipses as paths instead of emitting a rotation.
     #[arg(long, help_heading = "Shapes")]
     pub no_rotated_ellipses: bool,
+
+    /// Decimal places kept on every coordinate.
+    #[arg(
+        short,
+        long,
+        value_name = "N",
+        default_value_t = 2,
+        value_parser = clap::value_parser!(u8).range(0..=MAX_PRECISION as i64),
+        help_heading = "Output quality"
+    )]
+    pub precision: u8,
 }
 
 /// Whether shape detection runs.
@@ -259,6 +275,25 @@ impl Cli {
                 Shapes::Auto => Detect::default(),
                 Shapes::Off => Detect::none(),
             },
+        }
+    }
+
+    /// The serialization projection of these arguments.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clap::Parser as _;
+    /// use vectorise::cli::Cli;
+    ///
+    /// let cli = Cli::try_parse_from(["vectorise", "-p", "4", "a.png"]).expect("valid");
+    /// assert_eq!(cli.writer_options().precision, 4);
+    /// ```
+    #[must_use]
+    pub const fn writer_options(&self) -> WriterOptions {
+        WriterOptions {
+            precision: self.precision,
+            keep_size: self.keep_size,
         }
     }
 
@@ -572,6 +607,31 @@ mod tests {
         let options = cli.trace_options().expect("valid");
         assert_eq!(options.corner_threshold, Some(120));
         assert_eq!(options.segment_length, Some(1.0));
+    }
+
+    #[test]
+    fn cli_writer_options_default_to_two_decimals_and_no_size() {
+        let cli = Cli::try_parse_from(["vectorise", "a.png"]).expect("parses");
+        assert_eq!(
+            cli.writer_options(),
+            crate::writer::WriterOptions::default()
+        );
+    }
+
+    #[test]
+    fn cli_writer_flags_reach_the_writer() {
+        let cli = Cli::try_parse_from(["vectorise", "--precision", "0", "--keep-size", "a.png"])
+            .expect("parses");
+        let options = cli.writer_options();
+        assert_eq!(options.precision, 0);
+        assert!(options.keep_size);
+    }
+
+    #[test]
+    fn cli_rejects_a_precision_above_the_cap() {
+        let err =
+            Cli::try_parse_from(["vectorise", "--precision", "7", "a.png"]).expect_err("rejected");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
     }
 
     #[test]

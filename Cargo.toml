@@ -32,8 +32,10 @@ vtracer = "=1.0.0-alpha.4"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
+insta = "1.48"
 predicates = "3.1.4"
 proptest = "1.11"
+usvg = { version = "0.45", default-features = false }
 
 [profile.release]
 lto = "fat"

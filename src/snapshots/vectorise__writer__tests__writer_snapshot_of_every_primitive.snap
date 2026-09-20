@@ -1,0 +1,5 @@
+---
+source: src/writer.rs
+expression: "write_svg(&sample_doc(), &opts())"
+---
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90"><rect x="0" y="0" width="120" height="90" fill="#fff"/><circle cx="60" cy="45" r="20.5" fill="#f00"/><ellipse cx="95" cy="30" rx="15" ry="7.5" fill="#008000" transform="rotate(20 95 30)"/><rect x="4" y="60" width="40" height="24" rx="6" fill="#00f" fill-opacity=".784"/><path d="M5,5h20c5,5,5,15,0,20H5Z" fill="#36f"/></svg>
