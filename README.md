@@ -138,13 +138,63 @@ vectorise --stats-json icons/*.png | jq -s 'map(.output_bytes) | add'
 
 ### Tuning
 
+Three cases, measured with `--stats --verify`. Fidelity is `1 - mean absolute
+error`, so 1.0000 is pixel-identical.
+
+**1. A large oval comes out as a `<path>`.** At the tracer's default segment
+length, the fitted spline of a long curve encloses several percent more area
+than the pixels it came from, so no ellipse is faithful and the shape pass
+rightly refuses. Shorten the segments:
+
+```
+$ vectorise oval.png --stats
+oval.png -> oval.svg  2227 -> 659 bytes (30%)  2 shapes (0 circle, 0 ellipse, 1 rect, 1 path, 20 cmds)   fidelity 0.9961
+
+$ vectorise oval.png --stats --segment-length 1 --force
+oval.png -> oval.svg  2227 -> 182 bytes (8%)   2 shapes (0 circle, 1 ellipse, 1 rect, 0 path, 0 cmds)    fidelity 0.9987
+```
+
+3.6x smaller *and* more faithful, because an `<ellipse>` is four attributes
+where the path was twenty commands.
+
+**2. The output is bigger than it needs to be.** Coordinates default to two
+decimals. One is usually indistinguishable:
+
+```
+$ vectorise star.jpg --stats
+star.jpg -> star.svg  6462 -> 8566 bytes (133%)  388 cmds  fidelity 0.9919
+
+$ vectorise star.jpg --stats --precision 1 --force
+star.jpg -> star.svg  6462 -> 7078 bytes (110%)  388 cmds  fidelity 0.9919
+```
+
+17% off, with the fidelity unchanged to four decimals.
+
+**3. A busy image traces into too many shapes.** Merge near colours and
+simplify the curves:
+
+```
+$ vectorise busy.jpg --stats
+busy.jpg -> busy.svg  2173 -> 2816 bytes (130%)  14 colors  14 shapes  132 cmds  fidelity 0.9941
+
+$ vectorise busy.jpg --stats --simplify 1.5 --max-colors 6 --force
+busy.jpg -> busy.svg  2173 -> 2227 bytes (102%)   5 colors  10 shapes  113 cmds  fidelity 0.9937
+```
+
+21% off for 0.0004 of fidelity.
+
+Note what cases 2 and 3 have in common: both inputs are JPEGs, and both outputs
+are still larger than the input. JPEG is very good at a small lossy raster, and
+a faithful vector of a many-cornered shape is not small. `--stats` exists so
+that this is visible rather than surprising.
+
 | Symptom | Try |
 |---|---|
-| A large circle or oval came out as a `<path>` | `--segment-length 1`. The tracer's default fit of a long curve is several percent too fat for any ellipse to match; see `docs/shape-detection.md`. |
-| Too many tiny shapes | Raise `--filter-speckle`, or `--max-colors` to merge similar colors. |
-| Output is still large | `--simplify 1.5` for fewer curve segments, `--precision 1` for shorter numbers. |
-| Shapes were detected that should not have been | Lower `--shape-tolerance`, or `--shapes off`. |
-| A photograph looks blotchy | `--preset photo`. |
+| A large circle or oval came out as a `<path>` | `--segment-length 1`; see `docs/shape-detection.md` |
+| Too many tiny shapes | raise `--filter-speckle`, or `--max-colors` to merge similar colours |
+| Output is still large | `--simplify 1.5`, `--precision 1` |
+| Shapes were detected that should not have been | lower `--shape-tolerance`, or `--shapes off` |
+| A photograph looks blotchy | `--preset photo` |
 
 ## Exit codes
 
