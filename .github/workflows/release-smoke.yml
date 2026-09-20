@@ -1,0 +1,78 @@
+name: release-smoke
+
+# Download each published artifact on a runner of its own architecture, check
+# what it links against, and run it. An artifact nobody has executed is a
+# guess. `dist-workspace.toml` wires this in as a `post-announce-jobs` entry.
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  smoke:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PLAN: ${{ inputs.plan }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            static: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            static: true
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            static: false
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            static: false
+    steps:
+      - name: Read the tag from the plan
+        id: tag
+        run: |
+          tag="$(echo "$PLAN" | jq -r '.announcement_tag')"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'vectorise-${{ matrix.target }}.tar.xz' \
+            --dir .
+          mkdir -p unpacked
+          tar -xJf 'vectorise-${{ matrix.target }}.tar.xz' -C unpacked --strip-components 1
+
+      # The musl targets exist so the Linux binaries need nothing installed.
+      # If that ever stops being true, it should fail here rather than on
+      # somebody's machine.
+      - name: Assert the musl binaries are static
+        if: matrix.static
+        run: |
+          set -euo pipefail
+          file unpacked/vectorise | tee /dev/stderr | grep -q 'static'
+          if ldd unpacked/vectorise 2>&1 | tee /dev/stderr | grep -qv 'not a dynamic executable'; then
+            echo "the binary has dynamic dependencies" >&2
+            exit 1
+          fi
+
+      - name: Run it
+        run: |
+          set -euo pipefail
+          unpacked/vectorise --version
+          unpacked/vectorise --help > /dev/null
+          # A run with no arguments is a usage error, exit 64.
+          set +e
+          unpacked/vectorise
+          code=$?
+          set -e
+          test "$code" -eq 64

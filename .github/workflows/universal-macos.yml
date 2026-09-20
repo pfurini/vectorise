@@ -1,0 +1,72 @@
+name: universal-macos
+
+# `dist` has no universal2 target, so the fat macOS binary is assembled here
+# from the two it does build, after the release exists. `dist-workspace.toml`
+# wires this in as a `post-announce-jobs` entry.
+#
+# The result is a fifth artifact, `vectorise-universal-apple-darwin.tar.xz`,
+# for anyone who wants one download that runs on both Apple Silicon and Intel.
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  universal:
+    name: assemble the universal macOS binary
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PLAN: ${{ inputs.plan }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Read the tag from the plan
+        id: tag
+        run: |
+          tag="$(echo "$PLAN" | jq -r '.announcement_tag')"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download both macOS archives
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --pattern 'vectorise-aarch64-apple-darwin.tar.xz' \
+            --pattern 'vectorise-x86_64-apple-darwin.tar.xz' \
+            --dir downloads
+
+      - name: Assemble
+        run: |
+          set -euo pipefail
+          mkdir -p arm intel universal/vectorise-universal-apple-darwin
+          tar -xJf downloads/vectorise-aarch64-apple-darwin.tar.xz -C arm --strip-components 1
+          tar -xJf downloads/vectorise-x86_64-apple-darwin.tar.xz -C intel --strip-components 1
+
+          lipo -create -output universal/vectorise-universal-apple-darwin/vectorise \
+            arm/vectorise intel/vectorise
+          cp arm/README.md arm/CHANGELOG.md arm/LICENSE-MIT arm/LICENSE-APACHE \
+            universal/vectorise-universal-apple-darwin/
+
+          # Both architectures must be present, and the result must run here.
+          lipo -info universal/vectorise-universal-apple-darwin/vectorise
+          lipo -info universal/vectorise-universal-apple-darwin/vectorise | grep -q arm64
+          lipo -info universal/vectorise-universal-apple-darwin/vectorise | grep -q x86_64
+          universal/vectorise-universal-apple-darwin/vectorise --version
+
+          tar -cJf vectorise-universal-apple-darwin.tar.xz \
+            -C universal vectorise-universal-apple-darwin
+          shasum -a 256 vectorise-universal-apple-darwin.tar.xz \
+            > vectorise-universal-apple-darwin.tar.xz.sha256
+
+      - name: Attach to the release
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" \
+            vectorise-universal-apple-darwin.tar.xz \
+            vectorise-universal-apple-darwin.tar.xz.sha256 \
+            --clobber

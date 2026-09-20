@@ -82,7 +82,14 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-musl
       - name: Assert the binary is static
         run: |
-          file target/x86_64-unknown-linux-musl/release/vectorise | tee /dev/stderr | grep -q "static"
+          set -euo pipefail
+          binary=target/x86_64-unknown-linux-musl/release/vectorise
+          file "$binary" | tee /dev/stderr | grep -q "static"
+          if ldd "$binary" 2>&1 | tee /dev/stderr | grep -qv "not a dynamic executable"; then
+            echo "the musl binary has dynamic dependencies" >&2
+            exit 1
+          fi
+          "$binary" --version
 
   coverage:
     name: coverage

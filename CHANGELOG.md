@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-20
+
 ### Added
 
 - Project skeleton: library plus binary, pinned toolchain, lint configuration,
@@ -59,11 +61,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Benchmarks (`cargo bench`) and `docs/perf.md`. A 1024x1024 illustration
   converts in 34.6 ms, against a 1.5 s target; the shape pass is 5.1% of the
   pipeline, after two optimizations that made it 2.3x faster.
+- Release engineering: `cargo-dist` builds four targets (macOS arm64 and
+  x86_64, Linux x86_64 and aarch64 on musl) plus a universal macOS binary,
+  with a shell installer and a Homebrew formula. Every artifact is downloaded
+  on a runner of its own architecture and run before the release is done, and
+  the musl ones are asserted to have no dynamic dependencies.
+- `SIGNING.md`, the runbook for signing and notarizing the macOS binaries, and
+  a README note on clearing the quarantine attribute meanwhile.
 - `docs/adr/0001-language-and-stack.md`, `docs/adr/0002-output-dir-flattens.md`,
   `docs/adr/0003-preset-auto.md`, `docs/adr/0004-no-rotated-rectangles.md`,
   `docs/adr/0005-no-group-merging.md`, `docs/adr/0006-optimizer-is-lossless.md`,
   `docs/adr/0007-serde-for-stats-json.md`,
   `docs/adr/0008-fidelity-is-mean-absolute-error.md`,
+  `docs/adr/0009-release-targets-and-tap.md`,
   `docs/shape-detection.md`, `docs/perf.md`, `docs/size.md`.
 
-[Unreleased]: https://github.com/pfurini/vectorise/compare/HEAD
+[Unreleased]: https://github.com/pfurini/vectorise/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/pfurini/vectorise/releases/tag/v0.1.0

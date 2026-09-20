@@ -45,3 +45,8 @@ audit:
 release-dry:
     cargo build --release
     cargo publish --dry-run --allow-dirty
+    dist plan
+
+# Regenerate .github/workflows/release.yml after editing dist-workspace.toml.
+dist-generate:
+    dist generate

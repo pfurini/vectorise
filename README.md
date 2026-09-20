@@ -34,8 +34,22 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/pfurini/vectorise/relea
 cargo install vectorise
 ```
 
-Supported targets: macOS (arm64, x86_64) and Linux (x86_64, aarch64). Windows is
-out of scope by design.
+Supported targets: macOS (arm64, x86_64, and a universal binary) and Linux
+(x86_64, aarch64). The Linux binaries are statically linked against musl and
+need nothing installed. Windows is out of scope by design.
+
+### macOS Gatekeeper
+
+The released binaries are not signed. `brew install` and the installer script
+are unaffected, but a binary **downloaded through a browser** is quarantined and
+refused on first run. Clear the attribute:
+
+```sh
+xattr -d com.apple.quarantine /path/to/vectorise
+```
+
+`SIGNING.md` is the runbook for signing and notarizing properly, for whoever
+owns an Apple Developer account.
 
 ## Usage
 
