@@ -72,6 +72,27 @@ cargo bench --bench pipeline
 cargo bench --bench pipeline -- --warm-up-time 1 --measurement-time 3
 ```
 
+## Acceptance run
+
+The whole-project acceptance from `IMPLEMENTATION_PLAN.md` §7, on twenty
+generated logos (mixed PNG and JPEG, 120 to 240 px, discs, rectangles, ovals,
+and stars, some with a second colour on top):
+
+| Measure | Result |
+|---|---|
+| Batch | 49 882 -> 31 416 bytes (63%), 77 ms for twenty files |
+| Elements | 46 native shapes, 117 paths |
+| Fidelity (`--verify`) | min 0.9919, median 0.9968, max 1.0000; none below 0.99 |
+| Size ratio per file | 5% to 158% |
+| Second run | exit 2, all twenty collisions listed, nothing written |
+| `--force` | exit 0 |
+
+Two of the twenty came out larger than their input. Both are JPEG photographs
+of a star: JPEG is very good at a small lossy raster, and a faithful vector of
+a many-cornered shape is not small. The tool's job is the smallest *faithful
+vector*, not the smallest file of any kind, and `--stats` is there so this is
+visible rather than surprising.
+
 ## Still to do
 
 The plan asks for baseline numbers from both CI runners. These are from the
