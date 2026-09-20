@@ -21,18 +21,19 @@ One self-contained binary. No runtime dependencies, no subprocesses, no network.
 
 ## Install
 
-Not yet published. Once the first release is tagged:
-
 ```sh
-# Homebrew
-brew install pfurini/tap/vectorise
-
-# Installer script
+# Installer script: downloads the right binary for your platform
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/pfurini/vectorise/releases/latest/download/vectorise-installer.sh | sh
 
 # From source
-cargo install vectorise
+cargo install --git https://github.com/pfurini/vectorise
 ```
+
+Each release also carries a ready-made Homebrew formula (`vectorise.rb`) and
+binaries you can download directly. `brew install pfurini/tap/vectorise` will
+work once the tap repository exists; until then, use the installer script.
+
+`cargo install vectorise` works once the crate is published to crates.io.
 
 Supported targets: macOS (arm64, x86_64, and a universal binary) and Linux
 (x86_64, aarch64). The Linux binaries are statically linked against musl and

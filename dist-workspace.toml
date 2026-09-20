@@ -25,8 +25,12 @@ pr-run-mode = "plan"
 # Ship the third-party notices beside every binary: several dependency
 # licences require their notice to travel with the binary.
 include = ["THIRD-PARTY.md"]
-# Publish the generated Homebrew formula to the tap above
-publish-jobs = ["homebrew"]
+# The formula is generated and attached to every release, but not pushed to the
+# tap yet. Pushing needs two things this repository does not have: the tap
+# repository itself, and a personal access token with write access to it
+# (`secrets.GITHUB_TOKEN` is scoped to this repository only). To enable, create
+# the tap, add the token as `HOMEBREW_TAP_TOKEN`, and put back:
+#   publish-jobs = ["homebrew"]
 # `dist` has no universal2 target, so the fat macOS binary is built by a job
 # of ours after the release exists. See .github/workflows/universal-macos.yml.
 post-announce-jobs = ["./universal-macos", "./release-smoke"]
