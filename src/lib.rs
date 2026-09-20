@@ -27,7 +27,9 @@ pub mod cli;
 pub mod color;
 pub mod decode;
 pub mod error;
+pub mod geom;
 pub mod plan;
+pub mod shapes;
 pub mod trace;
 
 pub use plan::{Job, Plan, PlanError, PlanOptions, PlanProblem, plan};

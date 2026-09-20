@@ -28,7 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--mode`, `--filter-speckle`, `--color-precision`, `--gradient-step`,
   `--max-colors`, `--palette`, `--palette-file`, `--simplify`, `--threshold`,
   `--adaptive`, and `--watershed-detail`.
+- Shape detection: `vectorise::shapes` replaces a traced outline with a
+  `<circle>`, `<ellipse>`, or `<rect>` (sharp or rounded) whenever the
+  substitution is within `--shape-tolerance` of the original, measured as
+  symmetric difference on a raster. `--shapes`, `--shape-tolerance`,
+  `--min-shape-area`, `--no-rotated-ellipses`.
+- `--corner-threshold` and `--segment-length`, which control how closely the
+  tracer fits a curve and therefore whether large smooth shapes are detected.
 - `docs/adr/0001-language-and-stack.md`, `docs/adr/0002-output-dir-flattens.md`,
-  `docs/adr/0003-preset-auto.md`, `docs/size.md`.
+  `docs/adr/0003-preset-auto.md`, `docs/adr/0004-no-rotated-rectangles.md`,
+  `docs/shape-detection.md`, `docs/size.md`.
 
 [Unreleased]: https://github.com/pfurini/vectorise/compare/HEAD

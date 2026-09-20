@@ -13,6 +13,7 @@ use clap::Parser;
 use crate::color::{ParseRgbError, Rgb, parse_palette};
 use crate::decode::DecodeOptions;
 use crate::plan::PlanOptions;
+use crate::shapes::{Detect, ShapeFitOptions};
 use crate::trace::{Clustering, FitMode, Hierarchical, Preset, TraceOptions};
 
 /// Convert raster images into maximally compact SVG.
@@ -31,6 +32,8 @@ use crate::trace::{Clustering, FitMode, Hierarchical, Preset, TraceOptions};
 /// assert_eq!(cli.inputs.len(), 1);
 /// assert!(cli.dry_run);
 /// ```
+// Flags are flags: a CLI struct is exactly the place for a row of booleans.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Parser)]
 #[command(name = "vectorise", version, about, long_about = None)]
 pub struct Cli {
@@ -125,6 +128,54 @@ pub struct Cli {
     /// Where to cut the watershed hierarchy. Higher keeps more regions.
     #[arg(long, value_name = "N", help_heading = "Tracing")]
     pub watershed_detail: Option<u32>,
+
+    /// Corner threshold in degrees. Higher smooths through sharper turns.
+    #[arg(long, value_name = "DEG", help_heading = "Tracing")]
+    pub corner_threshold: Option<u16>,
+
+    /// Segment length threshold in pixels.
+    ///
+    /// Lower it to fit large smooth curves more closely; the default leaves a
+    /// 400 by 100 oval several percent too fat to be recognized as an ellipse.
+    #[arg(long, value_name = "PX", help_heading = "Tracing")]
+    pub segment_length: Option<f64>,
+
+    /// Detect native SVG shapes, or leave every region a path.
+    #[arg(long, value_enum, default_value_t = Shapes::Auto, help_heading = "Shapes")]
+    pub shapes: Shapes,
+
+    /// Allowed difference between a shape and the outline it replaces, as a
+    /// fraction of the region's area.
+    #[arg(
+        long,
+        value_name = "FRACTION",
+        default_value_t = 0.02,
+        help_heading = "Shapes"
+    )]
+    pub shape_tolerance: f64,
+
+    /// Regions smaller than this many square pixels stay paths.
+    #[arg(
+        long,
+        value_name = "PX2",
+        default_value_t = 16.0,
+        help_heading = "Shapes"
+    )]
+    pub min_shape_area: f64,
+
+    /// Keep rotated ellipses as paths instead of emitting a rotation.
+    #[arg(long, help_heading = "Shapes")]
+    pub no_rotated_ellipses: bool,
+}
+
+/// Whether shape detection runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum Shapes {
+    /// Detect circles, ellipses, and rectangles.
+    #[default]
+    Auto,
+    /// Emit every region as a path.
+    Off,
 }
 
 /// Why the tracing options could not be assembled from the command line.
@@ -185,6 +236,32 @@ impl Cli {
         }
     }
 
+    /// The shape-detection projection of these arguments.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clap::Parser as _;
+    /// use vectorise::cli::Cli;
+    ///
+    /// let cli = Cli::try_parse_from(["vectorise", "--shapes", "off", "a.png"])
+    ///     .expect("valid");
+    /// let options = cli.shape_options();
+    /// assert!(!options.detect.circle);
+    /// ```
+    #[must_use]
+    pub fn shape_options(&self) -> ShapeFitOptions {
+        ShapeFitOptions {
+            tolerance_frac: self.shape_tolerance,
+            min_area: self.min_shape_area,
+            allow_rotation: !self.no_rotated_ellipses,
+            detect: match self.shapes {
+                Shapes::Auto => Detect::default(),
+                Shapes::Off => Detect::none(),
+            },
+        }
+    }
+
     /// The tracing-relevant projection of these arguments.
     ///
     /// Reads `--palette-file` when one was given; `--palette` and
@@ -230,9 +307,9 @@ impl Cli {
             filter_speckle: self.filter_speckle,
             color_precision: self.color_precision,
             gradient_step: self.gradient_step,
+            corner_threshold: self.corner_threshold,
+            segment_length: self.segment_length,
             // Not on the command line in v1; see IMPLEMENTATION_PLAN.md §5.
-            corner_threshold: None,
-            segment_length: None,
             splice_threshold: None,
             simplify: self.simplify,
             max_colors: self.max_colors,
@@ -447,6 +524,54 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn cli_shape_options_default_to_detecting_everything() {
+        let cli = Cli::try_parse_from(["vectorise", "a.png"]).expect("parses");
+        let options = cli.shape_options();
+        assert_eq!(options, crate::shapes::ShapeFitOptions::default());
+    }
+
+    #[test]
+    fn cli_shape_flags_reach_the_pass() {
+        let cli = Cli::try_parse_from([
+            "vectorise",
+            "--shape-tolerance",
+            "0.05",
+            "--min-shape-area",
+            "64",
+            "--no-rotated-ellipses",
+            "a.png",
+        ])
+        .expect("parses");
+        let options = cli.shape_options();
+        assert!((options.tolerance_frac - 0.05).abs() < f64::EPSILON);
+        assert!((options.min_area - 64.0).abs() < f64::EPSILON);
+        assert!(!options.allow_rotation);
+        assert!(options.detect.circle, "detection is still on");
+    }
+
+    #[test]
+    fn cli_shapes_off_disables_every_detector() {
+        let cli = Cli::try_parse_from(["vectorise", "--shapes", "off", "a.png"]).expect("parses");
+        assert_eq!(cli.shape_options().detect, crate::shapes::Detect::none());
+    }
+
+    #[test]
+    fn cli_curve_fitting_flags_reach_the_tracer() {
+        let cli = Cli::try_parse_from([
+            "vectorise",
+            "--corner-threshold",
+            "120",
+            "--segment-length",
+            "1",
+            "a.png",
+        ])
+        .expect("parses");
+        let options = cli.trace_options().expect("valid");
+        assert_eq!(options.corner_threshold, Some(120));
+        assert_eq!(options.segment_length, Some(1.0));
     }
 
     #[test]

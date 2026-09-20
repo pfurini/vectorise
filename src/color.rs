@@ -48,6 +48,55 @@ impl Default for Rgb {
     }
 }
 
+/// A solid color with an alpha channel, as a traced shape's fill.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Rgba {
+    /// Red.
+    pub r: u8,
+    /// Green.
+    pub g: u8,
+    /// Blue.
+    pub b: u8,
+    /// Opacity. 255 is opaque.
+    pub a: u8,
+}
+
+impl Rgba {
+    /// A color from its four channels.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vectorise::color::Rgba;
+    ///
+    /// assert!(Rgba::new(1, 2, 3, 255).is_opaque());
+    /// ```
+    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+
+    /// An opaque color.
+    pub const fn opaque(color: Rgb) -> Self {
+        Self::new(color.r, color.g, color.b, 255)
+    }
+
+    /// Is this color fully opaque?
+    pub const fn is_opaque(self) -> bool {
+        self.a == 255
+    }
+
+    /// The color without its alpha channel.
+    pub const fn rgb(self) -> Rgb {
+        Rgb::new(self.r, self.g, self.b)
+    }
+}
+
+impl Default for Rgba {
+    fn default() -> Self {
+        Self::opaque(Rgb::BLACK)
+    }
+}
+
 /// Why a hex color could not be parsed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ParseRgbError {
@@ -220,5 +269,20 @@ mod tests {
     #[test]
     fn rgb_default_is_white() {
         assert_eq!(Rgb::default(), Rgb::WHITE);
+    }
+
+    #[test]
+    fn rgba_carries_alpha_alongside_the_solid_color() {
+        use super::Rgba;
+
+        let opaque = Rgba::opaque(Rgb::new(1, 2, 3));
+        assert_eq!(opaque, Rgba::new(1, 2, 3, 255));
+        assert!(opaque.is_opaque());
+        assert_eq!(opaque.rgb(), Rgb::new(1, 2, 3));
+
+        let translucent = Rgba::new(1, 2, 3, 128);
+        assert!(!translucent.is_opaque());
+        assert_eq!(translucent.rgb(), opaque.rgb());
+        assert_eq!(Rgba::default(), Rgba::new(0, 0, 0, 255));
     }
 }
