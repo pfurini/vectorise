@@ -75,3 +75,22 @@ The output saving is smaller than the Phase 0 estimate, because
 That sharpens the question rather than settling it: 7.6 MB of binary for 4.4% of
 output bytes. The FALLBACK remains fully specified and is now a smaller change
 than it was, since `optimize.rs` is the only file involved.
+
+
+---
+
+## B-002 — `paste` is unmaintained (RUSTSEC-2024-0436)
+
+- **Found:** Phase 7, 2026-09-20.
+- **Status:** accepted, ignored in both tools.
+
+`oxvg_ast` depends on `paste`, whose author has archived it. The advisory is an
+unmaintained-status notice, not a vulnerability: `paste` is a proc-macro that
+expands at compile time and contributes no runtime code to the binary.
+
+Ignored with the same reason in two places, because the tools do not share a
+config: `deny.toml` for `cargo deny check`, and `.cargo/audit.toml` for
+`cargo audit`. Keep them in step.
+
+Revisit if oxvg drops the dependency, or if a real advisory is ever filed
+against `paste`.

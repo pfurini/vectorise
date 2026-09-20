@@ -1,0 +1,12 @@
+# `cargo audit` has its own ignore list; `deny.toml` is not read by it. The two
+# must agree, so any advisory ignored here is ignored there with the same
+# reason, and vice versa.
+
+[advisories]
+ignore = [
+    # `paste` is a proc-macro pulled in by oxvg_ast. It expands at compile time
+    # and contributes no runtime code, and the advisory is "no longer
+    # maintained", not a vulnerability. Revisit if oxvg drops it or if a real
+    # advisory is filed against it. Mirrored in deny.toml.
+    "RUSTSEC-2024-0436",
+]
