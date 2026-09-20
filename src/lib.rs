@@ -24,6 +24,8 @@
 //! ```
 
 pub mod cli;
+pub mod color;
+pub mod decode;
 pub mod error;
 pub mod plan;
 

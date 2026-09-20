@@ -7,6 +7,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+use crate::color::Rgb;
+use crate::decode::DecodeOptions;
 use crate::plan::PlanOptions;
 
 /// Convert raster images into maximally compact SVG.
@@ -46,6 +48,13 @@ pub struct Cli {
     /// Print the input to output plan and exit.
     #[arg(short = 'n', long, help_heading = "Output")]
     pub dry_run: bool,
+
+    /// Color that transparency is resolved against, as `#rrggbb` or `#rgb`.
+    ///
+    /// Fully transparent pixels are dropped by the tracer, so this mainly
+    /// decides what semi-transparent pixels become.
+    #[arg(long, value_name = "COLOR", default_value_t = Rgb::WHITE, help_heading = "Tracing")]
+    pub background: Rgb,
 }
 
 impl Cli {
@@ -64,6 +73,25 @@ impl Cli {
         PlanOptions {
             output_dir: self.output_dir.clone(),
             force: self.force,
+        }
+    }
+
+    /// The decoding-relevant projection of these arguments.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clap::Parser as _;
+    /// use vectorise::cli::Cli;
+    /// use vectorise::color::Rgb;
+    ///
+    /// let cli = Cli::try_parse_from(["vectorise", "--background", "#000", "logo.png"])
+    ///     .expect("valid");
+    /// assert_eq!(cli.decode_options().background, Rgb::BLACK);
+    /// ```
+    pub const fn decode_options(&self) -> DecodeOptions {
+        DecodeOptions {
+            background: self.background,
         }
     }
 }
@@ -108,6 +136,25 @@ mod tests {
         );
         assert!(options.force);
         assert!(!cli.dry_run);
+    }
+
+    #[test]
+    fn cli_background_defaults_to_white_and_parses_hex() {
+        use crate::color::Rgb;
+
+        let cli = Cli::try_parse_from(["vectorise", "a.png"]).expect("parses");
+        assert_eq!(cli.decode_options().background, Rgb::WHITE);
+
+        let cli =
+            Cli::try_parse_from(["vectorise", "--background", "#3366ff", "a.png"]).expect("parses");
+        assert_eq!(cli.decode_options().background, Rgb::new(0x33, 0x66, 0xff));
+    }
+
+    #[test]
+    fn cli_rejects_a_malformed_background() {
+        let err = Cli::try_parse_from(["vectorise", "--background", "nope", "a.png"])
+            .expect_err("rejected");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
     }
 
     #[test]
