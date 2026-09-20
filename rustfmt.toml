@@ -1,0 +1,6 @@
+# Stable rustfmt options only. The plan also suggested `imports_granularity`
+# and `group_imports`; both are nightly-only, so they are omitted and import
+# style is kept consistent by review instead.
+edition = "2024"
+newline_style = "Unix"
+use_field_init_shorthand = true

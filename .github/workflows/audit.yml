@@ -1,0 +1,24 @@
+name: Audit
+
+# A dependency that is clean today can carry an advisory next week, so this
+# runs on a schedule as well as whenever the dependency set changes.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  push:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/audit.yml"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings

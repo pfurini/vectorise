@@ -1,0 +1,6 @@
+[toolchain]
+# Pinned at Phase 1. This is also the MSRV recorded as `rust-version` in
+# Cargo.toml; raise both together, never one alone.
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
