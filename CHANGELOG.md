@@ -43,6 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every job that would undo shape detection disabled, and with
   `convertPathData`'s approximating sub-passes off, so the pass is a pure
   re-encoding and the rendered result is bit-identical. `--no-optimize`.
+- End-to-end conversion: `vectorise logo.png` now reads, traces, fits shapes,
+  writes, optimizes, and saves `logo.svg`. Outputs are written atomically, so
+  an interrupted run never leaves a partial file, and the rename refuses to
+  clobber a file that appeared after preflight.
+- Batches run in parallel (`--jobs`), report results in plan order whatever the
+  thread count, and keep going after one file fails (exit 1, with the failing
+  file named).
+- `--quiet` and `-v`/`-vv`/`-vvv`.
 - `docs/adr/0001-language-and-stack.md`, `docs/adr/0002-output-dir-flattens.md`,
   `docs/adr/0003-preset-auto.md`, `docs/adr/0004-no-rotated-rectangles.md`,
   `docs/adr/0005-no-group-merging.md`, `docs/adr/0006-optimizer-is-lossless.md`,

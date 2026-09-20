@@ -7,17 +7,20 @@ Release profile from `Cargo.toml`: `lto = "fat"`, `codegen-units = 1`,
 Re-measure at the end of every phase that adds a dependency, and explain any
 jump of more than 500 KB.
 
-## End of Phase 7
+## End of Phase 8
 
 | Build | Size | Notes |
 |---|---|---|
-| whole pipeline, oxvg linked | 8 725 552 | A throwaway example calling decode, trace, fit, write, optimize. Close to what the finished binary will be. |
-| `target/release/vectorise` | see below | Still smaller, because `main` does not call the pipeline until Phase 8. |
+| `target/release/vectorise` | 9 438 752 | The shipping binary, now that `main` calls the whole pipeline. |
+| pipeline without the CLI (Phase 7 probe) | 8 725 552 | A throwaway example calling decode, trace, fit, write, optimize. |
 
 The jump from 1.1 MB (decode only) to 8.7 MB is `oxvg_optimiser` and its CSS
 parser, exactly as Phase 0 predicted. It buys `convertPathData`, worth about 4%
-of output bytes at bit-identical fidelity; see `docs/adr/0006-optimizer-is-lossless.md`
-and `docs/blockers.md` B-001.
+of output bytes at bit-identical fidelity; see
+`docs/adr/0006-optimizer-is-lossless.md` and `docs/blockers.md` B-001.
+
+The further 0.7 MB from the probe to the shipping binary is `clap` with
+`wrap_help`, `tracing-subscriber`, and `rayon`.
 
 ## Baseline — end of Phase 3
 

@@ -16,9 +16,8 @@ is still markup a human can read and edit.
 One self-contained binary. No runtime dependencies, no subprocesses, no network.
 
 > **Status: under construction.** The repository is being built phase by phase
-> against `IMPLEMENTATION_PLAN.md`. Phase 1 (skeleton, tooling, CI) is done;
-> conversion itself is not wired up yet. The usage section below is filled in
-> from the real `--help` at Phase 8.
+> against `IMPLEMENTATION_PLAN.md`. Conversion works end to end; `--verify`,
+> `--stats`, and the release artifacts are still to come.
 
 ## Install
 
@@ -40,16 +39,78 @@ out of scope by design.
 
 ## Usage
 
-```
-vectorise [OPTIONS] <INPUT>...
+```sh
+# One file. Writes logo.svg next to logo.png.
+vectorise logo.png
+
+# A batch, into one directory, four at a time.
+vectorise icons/*.png --output-dir build/icons --jobs 4
+
+# See what would happen, without writing anything.
+vectorise --dry-run 'assets/**/*.png'
 ```
 
 Output for `foo/bar.png` is `foo/bar.svg` — same directory, same stem, unless
 `--output-dir` says otherwise. The whole batch is validated before anything is
 written: if any output already exists, or two inputs would produce the same
-output, nothing is written at all.
+output, nothing is written at all and every problem is listed at once.
 
-The full option list arrives with Phase 8.
+### Options
+
+```
+Output:
+  -o, --output-dir <DIR>   Write all outputs into DIR (flattened)
+  -f, --force              Overwrite existing outputs; duplicates still fail
+  -n, --dry-run            Print the input to output plan and exit
+      --keep-size          Emit width and height as well as viewBox
+
+Tracing:
+      --background <COLOR>          Color transparency resolves against [default: #ffffff]
+      --preset <bw|poster|photo|auto>                             [default: auto]
+      --clustering <color-cluster|bw|watershed>
+      --hierarchical <stacked|cutout>
+  -m, --mode <pixel|polygon|spline>
+      --filter-speckle <PX>         Discard speckles below this side length
+      --color-precision <BITS>      Significant bits per RGB channel
+      --gradient-step <N>           Color difference between gradient layers
+      --max-colors <N>              Quantize to at most this many colors
+      --palette <COLORS>            Fixed palette, comma-separated hex
+      --palette-file <FILE>         Fixed palette, one color per line
+      --simplify <PX>               Curve simplification tolerance; try 1 to 2.5
+      --threshold <N>               Black-and-white cutoff for --clustering bw
+      --adaptive                    Adaptive thresholding instead of a cutoff
+      --watershed-detail <N>        Where to cut the watershed hierarchy
+      --corner-threshold <DEG>      Higher smooths through sharper turns
+      --segment-length <PX>         Lower fits large smooth curves more closely
+
+Shapes:
+      --shapes <auto|off>           Detect native SVG shapes  [default: auto]
+      --shape-tolerance <FRACTION>  Allowed difference, as a fraction of area
+                                                              [default: 0.02]
+      --min-shape-area <PX2>        Smaller regions stay paths [default: 16]
+      --no-rotated-ellipses         Keep rotated ellipses as paths
+
+Output quality:
+      --no-optimize                 Skip the optimizer pass
+  -p, --precision <N>               Coordinate decimals        [default: 2]
+
+Runtime:
+  -j, --jobs <N>                    Files at once  [default: available cores]
+  -q, --quiet                       Report nothing but errors
+  -v, --verbose...                  -v info, -vv debug, -vvv trace
+```
+
+`vectorise --help` prints the full text, with a sentence on each option.
+
+### Tuning
+
+| Symptom | Try |
+|---|---|
+| A large circle or oval came out as a `<path>` | `--segment-length 1`. The tracer's default fit of a long curve is several percent too fat for any ellipse to match; see `docs/shape-detection.md`. |
+| Too many tiny shapes | Raise `--filter-speckle`, or `--max-colors` to merge similar colors. |
+| Output is still large | `--simplify 1.5` for fewer curve segments, `--precision 1` for shorter numbers. |
+| Shapes were detected that should not have been | Lower `--shape-tolerance`, or `--shapes off`. |
+| A photograph looks blotchy | `--preset photo`. |
 
 ## Exit codes
 

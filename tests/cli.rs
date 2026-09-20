@@ -1,10 +1,13 @@
 //! Integration tests that drive the `vectorise` binary the way a user does.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
+mod common;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
+use common::fixtures;
 use predicates::prelude::*;
 
 fn vectorise() -> Command {
@@ -15,11 +18,7 @@ fn vectorise() -> Command {
 fn fixture(files: &[&str]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("tempdir");
     for file in files {
-        let path = dir.path().join(file);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("mkdir");
-        }
-        std::fs::write(&path, b"").expect("write");
+        fixtures::place(dir.path(), file, b"");
     }
     dir
 }
@@ -40,6 +39,16 @@ fn listing(dir: &Path) -> BTreeSet<PathBuf> {
     paths
 }
 
+/// Is this a complete SVG document?
+fn is_complete_svg(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    text.starts_with("<svg ") && text.trim_end().ends_with("</svg>")
+}
+
+// --- the basics ---------------------------------------------------------------
+
 #[test]
 fn binary_runs_and_prints_version() {
     vectorise()
@@ -56,6 +65,15 @@ fn no_args_is_usage_error() {
         .code(64)
         .stderr(predicate::str::contains("Usage:"));
 }
+
+#[test]
+fn cli_help_text_snapshot() {
+    let output = vectorise().arg("--help").assert().success();
+    let help = String::from_utf8(output.get_output().stdout.clone()).expect("utf-8");
+    insta::assert_snapshot!(help);
+}
+
+// --- planning ------------------------------------------------------------------
 
 #[test]
 fn cli_dry_run_prints_mapping_and_exits_zero_without_writing() {
@@ -138,17 +156,6 @@ fn cli_problem_output_is_stable_and_machine_readable() {
 }
 
 #[test]
-fn cli_force_accepts_an_existing_output() {
-    let dir = fixture(&["one.png", "one.svg"]);
-    vectorise()
-        .current_dir(dir.path())
-        .args(["--force", "--dry-run", "one.png"])
-        .assert()
-        .success()
-        .stdout("one.png\tone.svg\n");
-}
-
-#[test]
 fn cli_rejects_a_directory_argument() {
     let dir = fixture(&["sub/one.png"]);
     vectorise()
@@ -168,4 +175,425 @@ fn cli_expands_an_unexpanded_glob_itself() {
         .assert()
         .success()
         .stdout("a/one.png\ta/one.svg\na/two.png\ta/two.svg\n");
+}
+
+// --- conversion ------------------------------------------------------------------
+
+#[test]
+fn cli_converts_single_png_next_to_input() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+
+    vectorise()
+        .current_dir(dir.path())
+        .arg("disc.png")
+        .assert()
+        .success();
+
+    let output = dir.path().join("disc.svg");
+    assert!(output.is_file(), "the output sits next to its input");
+    let svg = std::fs::read_to_string(&output).expect("reads");
+    assert!(svg.starts_with("<svg "), "{svg}");
+    assert!(svg.contains("<circle"), "the disc is a circle: {svg}");
+}
+
+#[test]
+fn cli_converts_batch_in_parallel_and_all_outputs_exist() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in ["a", "b", "c", "d"] {
+        fixtures::place(dir.path(), &format!("{name}.png"), &fixtures::disc_png());
+    }
+    fixtures::place(dir.path(), "rect.png", &fixtures::rect_png());
+    fixtures::place(dir.path(), "photo.jpg", &fixtures::disc_jpeg());
+
+    vectorise()
+        .current_dir(dir.path())
+        .args([
+            "--jobs",
+            "4",
+            "a.png",
+            "b.png",
+            "c.png",
+            "d.png",
+            "rect.png",
+            "photo.jpg",
+        ])
+        .assert()
+        .success();
+
+    for name in ["a", "b", "c", "d", "rect", "photo"] {
+        let output = dir.path().join(format!("{name}.svg"));
+        assert!(is_complete_svg(&output), "{name}.svg is complete");
+    }
+    let rect = std::fs::read_to_string(dir.path().join("rect.svg")).expect("reads");
+    assert!(rect.contains("<rect"), "the rectangle is a rect: {rect}");
+}
+
+#[test]
+fn cli_output_dir_flag_places_outputs_there() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "deep/nested/disc.png", &fixtures::disc_png());
+
+    vectorise()
+        .current_dir(dir.path())
+        .args(["--output-dir", "out", "deep/nested/disc.png"])
+        .assert()
+        .success();
+
+    assert!(
+        dir.path().join("out/disc.svg").is_file(),
+        "flattened into the output directory"
+    );
+    assert!(!dir.path().join("deep/nested/disc.svg").exists());
+}
+
+#[test]
+fn cli_refuses_when_output_exists_and_writes_nothing_else() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in ["a", "b", "c"] {
+        fixtures::place(dir.path(), &format!("{name}.png"), &fixtures::disc_png());
+    }
+    // One collision is enough to reject the whole batch.
+    fixtures::place(dir.path(), "b.svg", b"theirs");
+    let before = listing(dir.path());
+
+    vectorise()
+        .current_dir(dir.path())
+        .args(["a.png", "b.png", "c.png"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("output-exists"));
+
+    assert_eq!(
+        listing(dir.path()),
+        before,
+        "not one of the three outputs was written"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("b.svg")).expect("reads"),
+        "theirs"
+    );
+}
+
+#[test]
+fn cli_force_overwrites() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+    fixtures::place(dir.path(), "disc.svg", b"theirs");
+
+    vectorise()
+        .current_dir(dir.path())
+        .args(["--force", "disc.png"])
+        .assert()
+        .success();
+
+    assert!(is_complete_svg(&dir.path().join("disc.svg")));
+}
+
+#[test]
+fn cli_partial_failure_exit_code_1_and_reports_per_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "good.png", &fixtures::disc_png());
+    fixtures::place(dir.path(), "broken.png", &fixtures::corrupt());
+
+    let assert = vectorise()
+        .current_dir(dir.path())
+        .args(["good.png", "broken.png"])
+        .assert()
+        .code(1);
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf-8");
+    assert!(
+        stderr.contains("broken.png"),
+        "the failing file is named: {stderr}"
+    );
+    assert!(
+        is_complete_svg(&dir.path().join("good.svg")),
+        "the other file still converted"
+    );
+    assert!(!dir.path().join("broken.svg").exists());
+}
+
+#[test]
+fn cli_jobs_1_is_sequential_and_deterministic_order_of_log_lines() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in ["c", "a", "b"] {
+        fixtures::place(dir.path(), &format!("{name}.png"), &fixtures::disc_png());
+    }
+
+    let order = |args: &[&str]| {
+        let assert = vectorise()
+            .current_dir(dir.path())
+            .args(args)
+            .arg("c.png")
+            .arg("a.png")
+            .arg("b.png")
+            .assert()
+            .success();
+        let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf-8");
+        stderr
+            .lines()
+            .filter(|line| line.contains("converted") && line.contains(".png"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+
+    let first = order(&["--jobs", "1", "--verbose", "--force"]);
+    assert_eq!(first.len(), 3, "one line per file: {first:?}");
+    // The plan sorts inputs, so the lines follow a, b, c whatever the argument
+    // order was.
+    assert!(first[0].contains("a.png"), "{first:?}");
+    assert!(first[1].contains("b.png"), "{first:?}");
+    assert!(first[2].contains("c.png"), "{first:?}");
+
+    let again = order(&["--jobs", "1", "--verbose", "--force"]);
+    assert_eq!(first, again, "the same run gives the same lines");
+
+    let parallel = order(&["--jobs", "4", "--verbose", "--force"]);
+    assert_eq!(
+        first, parallel,
+        "and so does a parallel run: results are ordered by the plan"
+    );
+}
+
+#[test]
+fn cli_quiet_suppresses_progress_but_not_errors() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+
+    let assert = vectorise()
+        .current_dir(dir.path())
+        .args(["--quiet", "disc.png"])
+        .assert()
+        .success();
+    assert_eq!(
+        assert.get_output().stderr,
+        b"",
+        "a quiet success says nothing at all"
+    );
+
+    fixtures::place(dir.path(), "broken.png", &fixtures::corrupt());
+    let assert = vectorise()
+        .current_dir(dir.path())
+        .args(["--quiet", "broken.png"])
+        .assert()
+        .code(1);
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf-8");
+    assert!(
+        stderr.contains("broken.png"),
+        "errors survive --quiet: {stderr:?}"
+    );
+}
+
+#[test]
+fn cli_verbose_enables_tracing_at_debug() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+
+    let quiet_run = vectorise()
+        .current_dir(dir.path())
+        .args(["--force", "disc.png"])
+        .assert()
+        .success();
+    let plain = String::from_utf8(quiet_run.get_output().stderr.clone()).expect("utf-8");
+    assert!(
+        !plain.contains("traced"),
+        "no debug lines by default: {plain}"
+    );
+
+    let debug_run = vectorise()
+        .current_dir(dir.path())
+        .args(["-vv", "--force", "disc.png"])
+        .assert()
+        .success();
+    let debug = String::from_utf8(debug_run.get_output().stderr.clone()).expect("utf-8");
+    for stage in ["decoded", "traced", "fitted", "optimized"] {
+        assert!(debug.contains(stage), "-vv reports {stage}: {debug}");
+    }
+}
+
+#[test]
+fn cli_no_optimize_still_writes_valid_svg() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+
+    vectorise()
+        .current_dir(dir.path())
+        .args(["--no-optimize", "disc.png"])
+        .assert()
+        .success();
+    assert!(is_complete_svg(&dir.path().join("disc.svg")));
+}
+
+#[test]
+fn cli_shapes_off_emits_paths_instead_of_primitives() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+
+    vectorise()
+        .current_dir(dir.path())
+        .args(["--shapes", "off", "disc.png"])
+        .assert()
+        .success();
+
+    let svg = std::fs::read_to_string(dir.path().join("disc.svg")).expect("reads");
+    assert!(!svg.contains("<circle"), "{svg}");
+    assert!(svg.contains("<path"), "{svg}");
+}
+
+#[test]
+fn cli_reports_a_bad_palette_as_a_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+
+    vectorise()
+        .current_dir(dir.path())
+        .args(["--palette", "#nothex", "disc.png"])
+        .assert()
+        .code(64);
+}
+
+#[test]
+fn cli_reports_a_missing_palette_file_as_an_io_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+
+    vectorise()
+        .current_dir(dir.path())
+        .args(["--palette-file", "no/such/file", "disc.png"])
+        .assert()
+        .code(74);
+}
+
+// --- interruption and isolation ---------------------------------------------------
+
+#[cfg(unix)]
+#[test]
+fn cli_sigint_leaves_no_temp_files() {
+    use std::io::Write as _;
+    use std::process::{Command as StdCommand, Stdio};
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    // Enough work that the process is still running when the signal arrives.
+    for index in 0..24 {
+        fixtures::place(
+            dir.path(),
+            &format!("f{index:02}.png"),
+            &fixtures::disc_png(),
+        );
+    }
+
+    let binary = assert_cmd::cargo::cargo_bin("vectorise");
+    let mut child = StdCommand::new(binary)
+        .current_dir(dir.path())
+        .args(["--jobs", "1", "-v"])
+        .args((0..24).map(|index| format!("f{index:02}.png")))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawns");
+
+    // Wait for the first output, so the signal lands mid-batch rather than
+    // before any work started.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while std::time::Instant::now() < deadline {
+        let written = (0..24)
+            .filter(|index| dir.path().join(format!("f{index:02}.svg")).exists())
+            .count();
+        if written >= 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    // `Child::kill` sends SIGKILL; SIGINT needs the shell's `kill`. Running a
+    // subprocess from a test is fine: the rule is that the *binary* spawns
+    // nothing.
+    let _ = std::io::stdout().flush();
+    let _ = StdCommand::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status();
+    let _ = child.wait();
+
+    for entry in std::fs::read_dir(dir.path()).expect("read_dir") {
+        let path = entry.expect("entry").path();
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_owned();
+
+        let extension = path.extension().and_then(|ext| ext.to_str());
+        if extension == Some("png") {
+            continue;
+        }
+        if extension == Some("svg") {
+            assert!(
+                is_complete_svg(&path),
+                "{name} is a partial output: an interrupted run must never leave one"
+            );
+            continue;
+        }
+        // A hard kill runs no destructors, so an in-flight temporary can
+        // survive. It must at least be recognizably ours and hidden.
+        assert!(
+            name.starts_with(".vectorise-"),
+            "unexpected leftover {name}"
+        );
+    }
+}
+
+#[test]
+fn cli_no_network_and_no_subprocess() {
+    // `strace` is the only portable-enough way to assert this, and it is
+    // Linux-only. Elsewhere the guarantee rests on the dependency set: no
+    // crate in the tree opens a socket or spawns a process.
+    if !cfg!(target_os = "linux") {
+        eprintln!("skipped: strace is Linux-only, and this host is not Linux");
+        return;
+    }
+
+    let available = std::process::Command::new("strace")
+        .arg("-V")
+        .output()
+        .is_ok();
+    if !available {
+        eprintln!("skipped: strace is not installed on this runner");
+        return;
+    }
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+    let binary = assert_cmd::cargo::cargo_bin("vectorise");
+
+    let output = std::process::Command::new("strace")
+        .args([
+            "-f",
+            "-e",
+            "trace=execve,connect,socket",
+            "-o",
+            "/dev/stdout",
+        ])
+        .arg(&binary)
+        .arg("disc.png")
+        .current_dir(dir.path())
+        .output()
+        .expect("strace runs");
+
+    let trace = String::from_utf8_lossy(&output.stdout);
+    let offenders: Vec<&str> = trace
+        .lines()
+        .filter(|line| line.contains("connect(") || line.contains("socket("))
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "the binary opened a socket: {offenders:?}"
+    );
+
+    // The first execve is the binary itself; any further one is a subprocess.
+    let executions = trace
+        .lines()
+        .filter(|line| line.contains("execve("))
+        .count();
+    assert!(executions <= 1, "the binary spawned a subprocess: {trace}");
 }

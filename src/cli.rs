@@ -16,6 +16,7 @@ use crate::plan::PlanOptions;
 use crate::shapes::{Detect, ShapeFitOptions};
 use crate::trace::{Clustering, FitMode, Hierarchical, Preset, TraceOptions};
 use crate::writer::{MAX_PRECISION, WriterOptions};
+use crate::{Options, error::ExitCode};
 
 /// Convert raster images into maximally compact SVG.
 ///
@@ -190,6 +191,24 @@ pub struct Cli {
         help_heading = "Output quality"
     )]
     pub precision: u8,
+
+    /// Number of files converted at once. Default: available parallelism.
+    #[arg(
+        short,
+        long,
+        value_name = "N",
+        value_parser = clap::value_parser!(u16).range(1..),
+        help_heading = "Runtime"
+    )]
+    pub jobs: Option<u16>,
+
+    /// Report nothing but errors.
+    #[arg(short, long, conflicts_with = "verbose", help_heading = "Runtime")]
+    pub quiet: bool,
+
+    /// Report more: once for info, twice for debug, three times for trace.
+    #[arg(short, long, action = clap::ArgAction::Count, help_heading = "Runtime")]
+    pub verbose: u8,
 }
 
 /// Whether shape detection runs.
@@ -257,6 +276,83 @@ impl Cli {
     pub const fn decode_options(&self) -> DecodeOptions {
         DecodeOptions {
             background: self.background,
+        }
+    }
+
+    /// How many files to convert at once.
+    ///
+    /// Without `--jobs`, one per available core, and at least one: a machine
+    /// that cannot report its parallelism gets a sequential run rather than
+    /// none.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clap::Parser as _;
+    /// use vectorise::cli::Cli;
+    ///
+    /// let cli = Cli::try_parse_from(["vectorise", "-j", "3", "a.png"]).expect("valid");
+    /// assert_eq!(cli.job_count(), 3);
+    /// ```
+    #[must_use]
+    pub fn job_count(&self) -> usize {
+        self.jobs.map_or_else(
+            || std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
+            usize::from,
+        )
+    }
+
+    /// The log level these arguments ask for.
+    ///
+    /// `--quiet` silences everything but errors. Each `-v` adds a level.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clap::Parser as _;
+    /// use vectorise::cli::Cli;
+    ///
+    /// let cli = Cli::try_parse_from(["vectorise", "-vv", "a.png"]).expect("valid");
+    /// assert_eq!(cli.log_level(), tracing::Level::DEBUG);
+    /// ```
+    #[must_use]
+    pub const fn log_level(&self) -> tracing::Level {
+        if self.quiet {
+            return tracing::Level::ERROR;
+        }
+        match self.verbose {
+            0 => tracing::Level::WARN,
+            1 => tracing::Level::INFO,
+            2 => tracing::Level::DEBUG,
+            _ => tracing::Level::TRACE,
+        }
+    }
+
+    /// Everything a conversion needs, assembled from these arguments.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`Cli::trace_options`] returns.
+    pub fn options(&self) -> Result<Options, TraceOptionsError> {
+        Ok(Options {
+            decode: self.decode_options(),
+            trace: self.trace_options()?,
+            shapes: self.shape_options(),
+            writer: self.writer_options(),
+            optimize: !self.no_optimize,
+            force: self.force,
+        })
+    }
+
+    /// The exit code for a command line that could not be turned into options.
+    ///
+    /// A palette that does not parse is a usage error; a palette file that
+    /// cannot be read is an I/O error outside any per-file conversion.
+    #[must_use]
+    pub const fn exit_code_for(error: &TraceOptionsError) -> ExitCode {
+        match error {
+            TraceOptionsError::PaletteFile { .. } => ExitCode::Io,
+            TraceOptionsError::Palette { .. } => ExitCode::Usage,
         }
     }
 
@@ -615,6 +711,83 @@ mod tests {
         let options = cli.trace_options().expect("valid");
         assert_eq!(options.corner_threshold, Some(120));
         assert_eq!(options.segment_length, Some(1.0));
+    }
+
+    #[test]
+    fn cli_job_count_defaults_to_available_parallelism() {
+        let cli = Cli::try_parse_from(["vectorise", "a.png"]).expect("parses");
+        assert!(cli.job_count() >= 1);
+
+        let cli = Cli::try_parse_from(["vectorise", "--jobs", "3", "a.png"]).expect("parses");
+        assert_eq!(cli.job_count(), 3);
+    }
+
+    #[test]
+    fn cli_rejects_zero_jobs() {
+        let err = Cli::try_parse_from(["vectorise", "--jobs", "0", "a.png"]).expect_err("rejected");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn cli_log_level_follows_quiet_and_verbose() {
+        use tracing::Level;
+
+        let level = |args: &[&str]| {
+            let mut full = vec!["vectorise"];
+            full.extend_from_slice(args);
+            full.push("a.png");
+            Cli::try_parse_from(full).expect("parses").log_level()
+        };
+
+        assert_eq!(level(&[]), Level::WARN);
+        assert_eq!(level(&["-v"]), Level::INFO);
+        assert_eq!(level(&["-vv"]), Level::DEBUG);
+        assert_eq!(level(&["-vvv"]), Level::TRACE);
+        assert_eq!(level(&["-vvvv"]), Level::TRACE, "extra v's do no harm");
+        assert_eq!(level(&["--quiet"]), Level::ERROR);
+    }
+
+    #[test]
+    fn cli_rejects_quiet_together_with_verbose() {
+        let err = Cli::try_parse_from(["vectorise", "-q", "-v", "a.png"]).expect_err("rejected");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn cli_options_assemble_every_stage() {
+        let cli = Cli::try_parse_from([
+            "vectorise",
+            "--no-optimize",
+            "--force",
+            "--precision",
+            "3",
+            "--background",
+            "#000",
+            "a.png",
+        ])
+        .expect("parses");
+        let options = cli.options().expect("valid");
+
+        assert!(!options.optimize);
+        assert!(options.force);
+        assert_eq!(options.writer.precision, 3);
+        assert_eq!(options.decode.background, crate::color::Rgb::BLACK);
+    }
+
+    #[test]
+    fn cli_option_failures_map_to_the_right_exit_code() {
+        use crate::error::ExitCode;
+
+        let bad_palette =
+            Cli::try_parse_from(["vectorise", "--palette", "nope", "a.png"]).expect("parses");
+        let error = bad_palette.options().expect_err("rejected");
+        assert_eq!(Cli::exit_code_for(&error), ExitCode::Usage);
+
+        let missing_file =
+            Cli::try_parse_from(["vectorise", "--palette-file", "no/such/file", "a.png"])
+                .expect("parses");
+        let error = missing_file.options().expect_err("rejected");
+        assert_eq!(Cli::exit_code_for(&error), ExitCode::Io);
     }
 
     #[test]

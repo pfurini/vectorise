@@ -1,0 +1,163 @@
+---
+source: tests/cli.rs
+expression: help
+---
+Convert raster images into maximally compact SVG, emitting native shape primitives wherever a traced
+region is one.
+
+Usage: vectorise [OPTIONS] <INPUT>...
+
+Arguments:
+  <INPUT>...
+          Raster files.
+          
+          Globs are normally expanded by your shell; a literal pattern (e.g. quoted `'**/*.png'`) is
+          expanded by vectorise itself.
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+Output:
+  -o, --output-dir <DIR>
+          Write all outputs into DIR (flattened). Default: next to each input
+
+  -f, --force
+          Overwrite existing outputs. Duplicate outputs still fail
+
+  -n, --dry-run
+          Print the input to output plan and exit
+
+      --keep-size
+          Emit width and height on the root element as well as viewBox
+
+Tracing:
+      --background <COLOR>
+          Color that transparency is resolved against, as `#rrggbb` or `#rgb`.
+          
+          Fully transparent pixels are dropped by the tracer, so this mainly decides what
+          semi-transparent pixels become.
+          
+          [default: #ffffff]
+
+      --preset <PRESET>
+          Starting point tuned for a kind of input
+
+          Possible values:
+          - bw:     Black-and-white line art
+          - poster: Flat, poster-like color with a full palette
+          - photo:  Photographic input: heavier speckle filtering, coarser layering
+          - auto:   Choose for the user. v1 picks `Poster`; see ADR-0003
+          
+          [default: auto]
+
+      --clustering <CLUSTERING>
+          Region-forming algorithm
+
+          Possible values:
+          - color-cluster: Hierarchical color clustering. VTracer's classic path
+          - bw:            Threshold to black and white, then cluster the foreground
+          - watershed:     Hierarchical watershed on the pixel graph
+
+      --hierarchical <HIERARCHICAL>
+          Stacked layers or a seam-free mosaic
+
+          Possible values:
+          - stacked: Trace each layer and stack them in paint order
+          - cutout:  Seam-free mosaic: each shared boundary is fitted once
+
+  -m, --mode <MODE>
+          Curve-fitting mode
+
+          Possible values:
+          - pixel:   Exact pixel-lattice polyline, no smoothing
+          - polygon: Douglas-Peucker polygon: straight edges, fewer points
+          - spline:  Corner detection plus least-squares cubics
+
+      --filter-speckle <PX>
+          Discard speckles smaller than this side length, in pixels
+
+      --color-precision <BITS>
+          Significant bits per RGB channel
+
+      --gradient-step <N>
+          Color difference between gradient layers
+
+      --max-colors <N>
+          Quantize to at most this many colors
+
+      --palette <COLORS>
+          Fixed palette, as comma-separated hex colors
+
+      --palette-file <FILE>
+          Fixed palette, read from a file of hex colors
+
+      --simplify <PX>
+          Curve simplification tolerance in pixels. Try 1 to 2.5
+
+      --threshold <N>
+          Black-and-white cutoff for `--clustering bw`
+
+      --adaptive
+          Use adaptive thresholding instead of a fixed cutoff
+
+      --watershed-detail <N>
+          Where to cut the watershed hierarchy. Higher keeps more regions
+
+      --corner-threshold <DEG>
+          Corner threshold in degrees. Higher smooths through sharper turns
+
+      --segment-length <PX>
+          Segment length threshold in pixels.
+          
+          Lower it to fit large smooth curves more closely; the default leaves a 400 by 100 oval
+          several percent too fat to be recognized as an ellipse.
+
+Shapes:
+      --shapes <SHAPES>
+          Detect native SVG shapes, or leave every region a path
+
+          Possible values:
+          - auto: Detect circles, ellipses, and rectangles
+          - off:  Emit every region as a path
+          
+          [default: auto]
+
+      --shape-tolerance <FRACTION>
+          Allowed difference between a shape and the outline it replaces, as a fraction of the
+          region's area
+          
+          [default: 0.02]
+
+      --min-shape-area <PX2>
+          Regions smaller than this many square pixels stay paths
+          
+          [default: 16]
+
+      --no-rotated-ellipses
+          Keep rotated ellipses as paths instead of emitting a rotation
+
+Output quality:
+      --no-optimize
+          Skip the optimizer pass.
+          
+          The writer already emits minimal markup; the optimizer rewrites path data on top of that.
+          Turn it off to keep the output exactly as the writer produced it.
+
+  -p, --precision <N>
+          Decimal places kept on every coordinate
+          
+          [default: 2]
+
+Runtime:
+  -j, --jobs <N>
+          Number of files converted at once. Default: available parallelism
+
+  -q, --quiet
+          Report nothing but errors
+
+  -v, --verbose...
+          Report more: once for info, twice for debug, three times for trace

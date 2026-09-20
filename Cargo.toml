@@ -21,15 +21,19 @@ name = "vectorise"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1"
 clap = { version = "4.6.7", features = ["derive", "wrap_help"] }
 glob = "0.3.4"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"] }
 kurbo = "0.13"
 oxvg_ast = { version = "0.0.8", default-features = false, features = ["roxmltree", "serialize", "visitor", "selectors"] }
 oxvg_optimiser = { version = "0.0.8", default-features = false }
+rayon = "1"
 tempfile = "3.27.0"
 thiserror = "2.0.20"
 tiny-skia = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "env-filter"] }
 vtracer = "=1.0.0-alpha.4"
 
 [dev-dependencies]
