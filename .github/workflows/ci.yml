@@ -81,15 +81,32 @@ jobs:
       - name: Build
         run: cargo build --release --target x86_64-unknown-linux-musl
       - name: Assert the binary is static
+        env:
+          BINARY: target/x86_64-unknown-linux-musl/release/vectorise
         run: |
           set -euo pipefail
-          binary=target/x86_64-unknown-linux-musl/release/vectorise
-          file "$binary" | tee /dev/stderr | grep -q "static"
-          if ldd "$binary" 2>&1 | tee /dev/stderr | grep -qv "not a dynamic executable"; then
-            echo "the musl binary has dynamic dependencies" >&2
+          file "$BINARY" | tee /dev/stderr | grep -q static
+
+          # `ldd` prints "statically linked" here and "not a dynamic
+          # executable" elsewhere; both mean the same thing, so assert on the
+          # ELF rather than on which sentence it chose. A binary that needs
+          # nothing at runtime has no shared-library entries and no
+          # interpreter. The output is captured first so that `grep -q`
+          # closing the pipe early cannot turn a match into a pipefail.
+          dynamic="$(readelf -d "$BINARY")"
+          segments="$(readelf -l "$BINARY")"
+          printf '%s\n' "$dynamic"
+
+          if printf '%s\n' "$dynamic" | grep -q NEEDED; then
+            echo "the musl binary has shared-library dependencies" >&2
             exit 1
           fi
-          "$binary" --version
+          if printf '%s\n' "$segments" | grep -q INTERP; then
+            echo "the musl binary asks for a dynamic loader" >&2
+            exit 1
+          fi
+
+          "$BINARY" --version
 
   coverage:
     name: coverage

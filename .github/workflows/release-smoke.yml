@@ -57,13 +57,32 @@ jobs:
       # somebody's machine.
       - name: Assert the musl binaries are static
         if: matrix.static
+        env:
+          BINARY: unpacked/vectorise
         run: |
           set -euo pipefail
-          file unpacked/vectorise | tee /dev/stderr | grep -q 'static'
-          if ldd unpacked/vectorise 2>&1 | tee /dev/stderr | grep -qv 'not a dynamic executable'; then
-            echo "the binary has dynamic dependencies" >&2
+          file "$BINARY" | tee /dev/stderr | grep -q static
+
+          # `ldd` prints "statically linked" here and "not a dynamic
+          # executable" elsewhere; both mean the same thing, so assert on the
+          # ELF rather than on which sentence it chose. A binary that needs
+          # nothing at runtime has no shared-library entries and no
+          # interpreter. The output is captured first so that `grep -q`
+          # closing the pipe early cannot turn a match into a pipefail.
+          dynamic="$(readelf -d "$BINARY")"
+          segments="$(readelf -l "$BINARY")"
+          printf '%s\n' "$dynamic"
+
+          if printf '%s\n' "$dynamic" | grep -q NEEDED; then
+            echo "the musl binary has shared-library dependencies" >&2
             exit 1
           fi
+          if printf '%s\n' "$segments" | grep -q INTERP; then
+            echo "the musl binary asks for a dynamic loader" >&2
+            exit 1
+          fi
+
+          "$BINARY" --version
 
       - name: Run it
         run: |
