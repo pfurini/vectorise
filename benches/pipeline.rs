@@ -13,6 +13,8 @@ use std::hint::black_box;
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Rect, Transform};
 use vtracer::ColorImage;
 
+use vectorise::cleanup::estimate::{edge_width, flat_noise};
+use vectorise::cleanup::filter::{kuwahara, toggle_contrast};
 use vectorise::shapes::{ShapeFitOptions, fit_shapes};
 use vectorise::trace::{TraceOptions, trace};
 use vectorise::writer::{WriterOptions, write_svg};
@@ -120,5 +122,45 @@ fn bench_whole_pipeline(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_stages, bench_whole_pipeline);
+/// The poster, blurred at sigma 3: the input the cleanup pass exists for.
+fn blurred_poster(size: u32) -> ColorImage {
+    let image = poster(size);
+    let buffer = image::RgbaImage::from_raw(size, size, image.pixels).expect("buffer");
+    let blurred = image::imageops::blur(&buffer, 3.0);
+    ColorImage {
+        pixels: blurred.into_raw(),
+        width: size as usize,
+        height: size as usize,
+    }
+}
+
+/// The cleanup stage, single-threaded, at the radii the auto rule picks for
+/// a heavily blurred input. The plan's budget is 20 ms for both filters
+/// together at 1024x1024; `docs/perf.md` records what was measured.
+fn bench_cleanup(c: &mut Criterion) {
+    let image = blurred_poster(1024);
+    let mut group = c.benchmark_group("cleanup");
+    group.sample_size(20);
+    group.bench_function("edge_width 1024", |b| {
+        b.iter(|| edge_width(black_box(&image)));
+    });
+    group.bench_function("flat_noise 1024", |b| {
+        b.iter(|| flat_noise(black_box(&image)));
+    });
+    group.bench_function("kuwahara r3 1024", |b| {
+        b.iter(|| kuwahara(black_box(&image), 3, false));
+    });
+    group.bench_function("toggle r2 1024", |b| {
+        b.iter(|| toggle_contrast(black_box(&image), 2, false));
+    });
+    group.bench_function("kuwahara r3 1024 parallel", |b| {
+        b.iter(|| kuwahara(black_box(&image), 3, true));
+    });
+    group.bench_function("toggle r2 1024 parallel", |b| {
+        b.iter(|| toggle_contrast(black_box(&image), 2, true));
+    });
+    group.finish();
+}
+
+criterion_group!(benches, bench_stages, bench_whole_pipeline, bench_cleanup);
 criterion_main!(benches);

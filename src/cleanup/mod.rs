@@ -11,11 +11,13 @@
 //! | Module | Job |
 //! |---|---|
 //! | [`estimate`] | measure how blurred and how noisy the raster is |
+//! | [`filter`] | the two operators: Kuwahara and toggle contrast |
 //!
-//! Phase 1 ships the signals only. The filters and the pass that ties them
-//! together follow in the next phases.
+//! Phase 2 ships the signals and the filters. The pass that ties them
+//! together follows in the next phase.
 
 pub mod estimate;
+pub mod filter;
 
 /// The calibration fixtures of `CLEANUP_IMPLEMENTATION_PLAN.md` §10.7, shared
 /// with the integration tests so each drawing exists once.
