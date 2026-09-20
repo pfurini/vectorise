@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-20
+
 ### Added
 
 - A raster cleanup stage between decoding and tracing, on by default. It
@@ -107,5 +109,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/adr/0009-release-targets-and-tap.md`,
   `docs/shape-detection.md`, `docs/perf.md`, `docs/size.md`.
 
-[Unreleased]: https://github.com/pfurini/vectorise/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/pfurini/vectorise/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/pfurini/vectorise/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/pfurini/vectorise/releases/tag/v0.1.0
