@@ -22,6 +22,9 @@ targets = [
 install-path = "CARGO_HOME"
 # Which actions to run on pull requests
 pr-run-mode = "plan"
+# Ship the third-party notices beside every binary: several dependency
+# licences require their notice to travel with the binary.
+include = ["THIRD-PARTY.md"]
 # Publish the generated Homebrew formula to the tap above
 publish-jobs = ["homebrew"]
 # `dist` has no universal2 target, so the fat macOS binary is built by a job

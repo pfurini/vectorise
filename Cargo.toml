@@ -11,7 +11,17 @@ homepage = "https://github.com/pfurini/vectorise"
 readme = "README.md"
 categories = ["command-line-utilities", "graphics", "multimedia::images"]
 keywords = ["svg", "vectorization", "trace", "raster", "cli"]
-exclude = ["/.github", "/docs", "/tests/fixtures", "/justfile", "/deny.toml"]
+# An explicit list, not an exclude list: repository infrastructure added later
+# should not silently end up in the published crate. Cargo always adds
+# Cargo.toml and Cargo.lock.
+include = [
+    "/src",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
+    "/THIRD-PARTY.md",
+]
 
 [lib]
 name = "vectorise"

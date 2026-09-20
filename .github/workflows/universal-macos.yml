@@ -51,7 +51,7 @@ jobs:
           lipo -create -output universal/vectorise-universal-apple-darwin/vectorise \
             arm/vectorise intel/vectorise
           cp arm/README.md arm/CHANGELOG.md arm/LICENSE-MIT arm/LICENSE-APACHE \
-            universal/vectorise-universal-apple-darwin/
+            arm/THIRD-PARTY.md universal/vectorise-universal-apple-darwin/
 
           # Both architectures must be present, and the result must run here.
           lipo -info universal/vectorise-universal-apple-darwin/vectorise

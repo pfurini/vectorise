@@ -230,3 +230,11 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual-licensed as above, without any additional terms or conditions.
+
+A released **binary** also contains 215 third-party crates. All of them are
+permissively licensed; eight are MPL-2.0, whose file-level copyleft reaches
+those files and not ours. [THIRD-PARTY.md](THIRD-PARTY.md) lists every crate by
+licence and says where the MPL-covered source is. It ships beside the binary in
+every release archive, which is what those licences ask for. No crate in the
+graph is GPL, LGPL, or AGPL, and `cargo deny check licenses` enforces that on
+every CI run.

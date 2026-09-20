@@ -41,6 +41,10 @@ fixtures:
 audit:
     cargo audit
 
+# Regenerate THIRD-PARTY.md after the dependency graph changes.
+third-party:
+    python3 scripts/gen-third-party.py
+
 # Build the release binary the way the release workflow does.
 release-dry:
     cargo build --release
