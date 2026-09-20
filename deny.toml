@@ -19,7 +19,13 @@ feature-depth = 1
 [advisories]
 # `cargo audit` runs on its own weekly schedule; this catches the same
 # advisories inside the normal `cargo deny check` run.
-ignore = []
+ignore = [
+    # `paste` is a proc-macro pulled in by oxvg_ast. It expands at compile
+    # time and contributes no runtime code, and the advisory is
+    # "no longer maintained", not a vulnerability. Revisit if oxvg drops it or
+    # if a real advisory is filed against it.
+    { id = "RUSTSEC-2024-0436", reason = "compile-time only proc-macro, advisory is unmaintained-status not a vulnerability" },
+]
 
 [licenses]
 # Allow-list semantics: any license not named here is denied, which is how

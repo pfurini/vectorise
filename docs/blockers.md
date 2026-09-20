@@ -61,3 +61,17 @@ Recorded in `docs/api-notes.md` §9. ADR-0006 is written in Phase 7 either way,
 so reversing costs one ADR and the deletion of `optimize.rs`'s oxvg path.
 
 Raised with the repository owner on 2026-09-20.
+
+### Update, end of Phase 7
+
+Built and measured with the whole pipeline linked: **8 725 552 bytes**, against
+about 1.1 MB for the decode path alone.
+
+The output saving is smaller than the Phase 0 estimate, because
+`convertPathData`'s approximating sub-passes are now off: it is **4.4%**, not
+29%, and the rendered result is bit-identical. See
+`docs/adr/0006-optimizer-is-lossless.md` for the measurement and the reasoning.
+
+That sharpens the question rather than settling it: 7.6 MB of binary for 4.4% of
+output bytes. The FALLBACK remains fully specified and is now a smaller change
+than it was, since `optimize.rs` is the only file involved.

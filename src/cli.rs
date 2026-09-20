@@ -172,6 +172,14 @@ pub struct Cli {
     #[arg(long, help_heading = "Shapes")]
     pub no_rotated_ellipses: bool,
 
+    /// Skip the optimizer pass.
+    ///
+    /// The writer already emits minimal markup; the optimizer rewrites path
+    /// data on top of that. Turn it off to keep the output exactly as the
+    /// writer produced it.
+    #[arg(long, help_heading = "Output quality")]
+    pub no_optimize: bool,
+
     /// Decimal places kept on every coordinate.
     #[arg(
         short,
@@ -607,6 +615,15 @@ mod tests {
         let options = cli.trace_options().expect("valid");
         assert_eq!(options.corner_threshold, Some(120));
         assert_eq!(options.segment_length, Some(1.0));
+    }
+
+    #[test]
+    fn cli_optimizer_runs_unless_told_not_to() {
+        let cli = Cli::try_parse_from(["vectorise", "a.png"]).expect("parses");
+        assert!(!cli.no_optimize);
+
+        let cli = Cli::try_parse_from(["vectorise", "--no-optimize", "a.png"]).expect("parses");
+        assert!(cli.no_optimize);
     }
 
     #[test]

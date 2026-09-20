@@ -39,9 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no prolog, no comments, and no groups; shortest-form hex fills, shortest-form
   numbers, and relative path commands with `h`, `v`, and `s` shorthands.
   `--precision` and `--keep-size`.
+- Optimizer pass: `vectorise::optimize` runs oxvg over the written SVG with
+  every job that would undo shape detection disabled, and with
+  `convertPathData`'s approximating sub-passes off, so the pass is a pure
+  re-encoding and the rendered result is bit-identical. `--no-optimize`.
 - `docs/adr/0001-language-and-stack.md`, `docs/adr/0002-output-dir-flattens.md`,
   `docs/adr/0003-preset-auto.md`, `docs/adr/0004-no-rotated-rectangles.md`,
-  `docs/adr/0005-no-group-merging.md`, `docs/shape-detection.md`,
-  `docs/size.md`.
+  `docs/adr/0005-no-group-merging.md`, `docs/adr/0006-optimizer-is-lossless.md`,
+  `docs/shape-detection.md`, `docs/size.md`.
 
 [Unreleased]: https://github.com/pfurini/vectorise/compare/HEAD

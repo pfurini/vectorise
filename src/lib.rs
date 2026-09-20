@@ -28,6 +28,7 @@ pub mod color;
 pub mod decode;
 pub mod error;
 pub mod geom;
+pub mod optimize;
 pub mod plan;
 pub mod shapes;
 pub mod trace;

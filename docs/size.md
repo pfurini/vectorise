@@ -7,6 +7,18 @@ Release profile from `Cargo.toml`: `lto = "fat"`, `codegen-units = 1`,
 Re-measure at the end of every phase that adds a dependency, and explain any
 jump of more than 500 KB.
 
+## End of Phase 7
+
+| Build | Size | Notes |
+|---|---|---|
+| whole pipeline, oxvg linked | 8 725 552 | A throwaway example calling decode, trace, fit, write, optimize. Close to what the finished binary will be. |
+| `target/release/vectorise` | see below | Still smaller, because `main` does not call the pipeline until Phase 8. |
+
+The jump from 1.1 MB (decode only) to 8.7 MB is `oxvg_optimiser` and its CSS
+parser, exactly as Phase 0 predicted. It buys `convertPathData`, worth about 4%
+of output bytes at bit-identical fidelity; see `docs/adr/0006-optimizer-is-lossless.md`
+and `docs/blockers.md` B-001.
+
 ## Baseline — end of Phase 3
 
 | Build | Size | Notes |
@@ -30,7 +42,7 @@ jump of more than 500 KB.
 | Phase | Crate | Expected effect |
 |---|---|---|
 | 5 | `kurbo`, `tiny-skia` | small; both are compact pure-Rust libraries (the Phase 0 spike linked them for ~400 KB on top of decode) |
-| 7 | `oxvg_optimiser`, `oxvg_ast` | ~+7.3 MB, dominated by `lightningcss` and `parcel_selectors` (see `docs/blockers.md` B-001) |
+| 7 | `oxvg_optimiser`, `oxvg_ast` | measured +7.6 MB, dominated by `lightningcss` and `parcel_selectors` (see `docs/blockers.md` B-001) |
 | 8 | `rayon`, `tracing`, `tracing-subscriber`, `anyhow` | moderate; `tracing-subscriber` is the larger half |
 | 9 | `resvg`, `usvg`, `serde_json` | moderate; `usvg` brings a full SVG parser |
 
