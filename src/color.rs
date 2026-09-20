@@ -127,6 +127,33 @@ const fn hex_value(digit: char) -> Option<u8> {
     }
 }
 
+/// Parse a list of colors separated by commas, whitespace, or newlines.
+///
+/// One spelling serves both `--palette '#fff,#000'` and a `--palette-file`
+/// holding one color per line. Empty entries are skipped, so a trailing comma
+/// or a blank line is not an error.
+///
+/// # Errors
+///
+/// [`ParseRgbError`] for the first entry that is not a hex color.
+///
+/// # Examples
+///
+/// ```
+/// use vectorise::color::{Rgb, parse_palette};
+///
+/// let palette = parse_palette("#fff, 000\n#3366ff").expect("valid");
+/// assert_eq!(palette, [Rgb::WHITE, Rgb::BLACK, Rgb::new(0x33, 0x66, 0xff)]);
+/// assert!(parse_palette("").expect("valid").is_empty());
+/// ```
+pub fn parse_palette(text: &str) -> Result<Vec<Rgb>, ParseRgbError> {
+    text.split([',', '\n', '\r', '\t', ' '])
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(Rgb::from_str)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]

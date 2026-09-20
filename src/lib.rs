@@ -28,5 +28,6 @@ pub mod color;
 pub mod decode;
 pub mod error;
 pub mod plan;
+pub mod trace;
 
 pub use plan::{Job, Plan, PlanError, PlanOptions, PlanProblem, plan};

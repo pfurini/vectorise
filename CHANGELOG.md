@@ -23,7 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extension, applying EXIF orientation (`image` 0.25 does not), and resolving
   transparency against `--background` (default white).
 - `vectorise::color::Rgb` with `#rrggbb` and `#rgb` parsing.
+- Tracing: `vectorise::trace` maps typed options onto `vtracer::Config` and
+  runs the pipeline, with `--preset`, `--clustering`, `--hierarchical`,
+  `--mode`, `--filter-speckle`, `--color-precision`, `--gradient-step`,
+  `--max-colors`, `--palette`, `--palette-file`, `--simplify`, `--threshold`,
+  `--adaptive`, and `--watershed-detail`.
 - `docs/adr/0001-language-and-stack.md`, `docs/adr/0002-output-dir-flattens.md`,
-  `docs/size.md`.
+  `docs/adr/0003-preset-auto.md`, `docs/size.md`.
 
 [Unreleased]: https://github.com/pfurini/vectorise/compare/HEAD

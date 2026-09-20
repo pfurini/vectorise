@@ -1,15 +1,19 @@
-//! Command-line surface: `clap` definitions only, no logic.
+//! Command-line surface: `clap` definitions and the thin accessors that
+//! project them onto the option structs each stage takes.
 //!
-//! Every field here is parsed data. Turning it into a plan, a tracing config,
-//! or a writer setting happens in the modules that own those concerns.
+//! No decisions are made here. The one thing that is not pure is
+//! [`Cli::trace_options`], which reads `--palette-file` from disk, because a
+//! file path is an argument like any other and resolving it anywhere else
+//! would spread the palette across two modules.
 
 use std::path::PathBuf;
 
 use clap::Parser;
 
-use crate::color::Rgb;
+use crate::color::{ParseRgbError, Rgb, parse_palette};
 use crate::decode::DecodeOptions;
 use crate::plan::PlanOptions;
+use crate::trace::{Clustering, FitMode, Hierarchical, Preset, TraceOptions};
 
 /// Convert raster images into maximally compact SVG.
 ///
@@ -55,6 +59,92 @@ pub struct Cli {
     /// decides what semi-transparent pixels become.
     #[arg(long, value_name = "COLOR", default_value_t = Rgb::WHITE, help_heading = "Tracing")]
     pub background: Rgb,
+
+    /// Starting point tuned for a kind of input.
+    #[arg(long, value_enum, default_value_t = Preset::Auto, help_heading = "Tracing")]
+    pub preset: Preset,
+
+    /// Region-forming algorithm.
+    #[arg(long, value_enum, help_heading = "Tracing")]
+    pub clustering: Option<Clustering>,
+
+    /// Stacked layers or a seam-free mosaic.
+    #[arg(long, value_enum, help_heading = "Tracing")]
+    pub hierarchical: Option<Hierarchical>,
+
+    /// Curve-fitting mode.
+    #[arg(short, long, value_enum, help_heading = "Tracing")]
+    pub mode: Option<FitMode>,
+
+    /// Discard speckles smaller than this side length, in pixels.
+    #[arg(long, value_name = "PX", value_parser = clap::value_parser!(u8).range(0..=128), help_heading = "Tracing")]
+    pub filter_speckle: Option<u8>,
+
+    /// Significant bits per RGB channel.
+    #[arg(long, value_name = "BITS", value_parser = clap::value_parser!(u8).range(1..=8), help_heading = "Tracing")]
+    pub color_precision: Option<u8>,
+
+    /// Color difference between gradient layers.
+    #[arg(long, value_name = "N", help_heading = "Tracing")]
+    pub gradient_step: Option<u8>,
+
+    /// Quantize to at most this many colors.
+    #[arg(long, value_name = "N", help_heading = "Tracing")]
+    pub max_colors: Option<u16>,
+
+    /// Fixed palette, as comma-separated hex colors.
+    #[arg(
+        long,
+        value_name = "COLORS",
+        conflicts_with = "palette_file",
+        help_heading = "Tracing"
+    )]
+    pub palette: Option<String>,
+
+    /// Fixed palette, read from a file of hex colors.
+    #[arg(long, value_name = "FILE", help_heading = "Tracing")]
+    pub palette_file: Option<PathBuf>,
+
+    /// Curve simplification tolerance in pixels. Try 1 to 2.5.
+    #[arg(long, value_name = "PX", help_heading = "Tracing")]
+    pub simplify: Option<f64>,
+
+    /// Black-and-white cutoff for `--clustering bw`.
+    #[arg(
+        long,
+        value_name = "N",
+        conflicts_with = "adaptive",
+        help_heading = "Tracing"
+    )]
+    pub threshold: Option<u8>,
+
+    /// Use adaptive thresholding instead of a fixed cutoff.
+    #[arg(long, help_heading = "Tracing")]
+    pub adaptive: bool,
+
+    /// Where to cut the watershed hierarchy. Higher keeps more regions.
+    #[arg(long, value_name = "N", help_heading = "Tracing")]
+    pub watershed_detail: Option<u32>,
+}
+
+/// Why the tracing options could not be assembled from the command line.
+#[derive(Debug, thiserror::Error)]
+pub enum TraceOptionsError {
+    /// `--palette-file` could not be read.
+    #[error("--palette-file {path}: {source}")]
+    PaletteFile {
+        /// The file we tried to read.
+        path: PathBuf,
+        /// The underlying I/O failure.
+        source: std::io::Error,
+    },
+    /// A palette entry is not a hex color.
+    #[error("{source}")]
+    Palette {
+        /// What the parser objected to.
+        #[from]
+        source: ParseRgbError,
+    },
 }
 
 impl Cli {
@@ -93,6 +183,64 @@ impl Cli {
         DecodeOptions {
             background: self.background,
         }
+    }
+
+    /// The tracing-relevant projection of these arguments.
+    ///
+    /// Reads `--palette-file` when one was given; `--palette` and
+    /// `--palette-file` are mutually exclusive, so at most one is consulted.
+    ///
+    /// # Errors
+    ///
+    /// [`TraceOptionsError::PaletteFile`] if the file cannot be read, and
+    /// [`TraceOptionsError::Palette`] if any entry is not a hex color.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clap::Parser as _;
+    /// use vectorise::cli::Cli;
+    /// use vectorise::trace::Preset;
+    ///
+    /// let cli = Cli::try_parse_from(["vectorise", "--preset", "photo", "a.png"])
+    ///     .expect("valid");
+    /// let options = cli.trace_options().expect("valid");
+    /// assert_eq!(options.preset, Some(Preset::Photo));
+    /// ```
+    pub fn trace_options(&self) -> Result<TraceOptions, TraceOptionsError> {
+        let palette = match (self.palette.as_deref(), self.palette_file.as_deref()) {
+            (Some(text), _) => Some(parse_palette(text)?),
+            (None, Some(path)) => {
+                let text = std::fs::read_to_string(path).map_err(|source| {
+                    TraceOptionsError::PaletteFile {
+                        path: path.to_path_buf(),
+                        source,
+                    }
+                })?;
+                Some(parse_palette(&text)?)
+            }
+            (None, None) => None,
+        };
+
+        Ok(TraceOptions {
+            preset: Some(self.preset),
+            clustering: self.clustering,
+            hierarchical: self.hierarchical,
+            mode: self.mode,
+            filter_speckle: self.filter_speckle,
+            color_precision: self.color_precision,
+            gradient_step: self.gradient_step,
+            // Not on the command line in v1; see IMPLEMENTATION_PLAN.md §5.
+            corner_threshold: None,
+            segment_length: None,
+            splice_threshold: None,
+            simplify: self.simplify,
+            max_colors: self.max_colors,
+            palette,
+            threshold: self.threshold,
+            adaptive: self.adaptive.then_some(true),
+            watershed_detail: self.watershed_detail,
+        })
     }
 }
 
@@ -155,6 +303,150 @@ mod tests {
         let err = Cli::try_parse_from(["vectorise", "--background", "nope", "a.png"])
             .expect_err("rejected");
         assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn cli_trace_options_default_to_the_auto_preset() {
+        use crate::trace::Preset;
+
+        let cli = Cli::try_parse_from(["vectorise", "a.png"]).expect("parses");
+        let options = cli.trace_options().expect("valid");
+        assert_eq!(options.preset, Some(Preset::Auto));
+        assert_eq!(options.palette, None);
+        assert_eq!(options.adaptive, None, "the flag is absent, not false");
+    }
+
+    #[test]
+    fn cli_trace_options_carry_every_tracing_flag() {
+        use crate::trace::{Clustering, FitMode, Hierarchical};
+
+        let cli = Cli::try_parse_from([
+            "vectorise",
+            "--clustering",
+            "watershed",
+            "--hierarchical",
+            "cutout",
+            "--mode",
+            "polygon",
+            "--filter-speckle",
+            "7",
+            "--color-precision",
+            "5",
+            "--gradient-step",
+            "24",
+            "--max-colors",
+            "9",
+            "--simplify",
+            "1.5",
+            "--adaptive",
+            "--watershed-detail",
+            "200",
+            "a.png",
+        ])
+        .expect("parses");
+        let options = cli.trace_options().expect("valid");
+
+        assert_eq!(options.clustering, Some(Clustering::Watershed));
+        assert_eq!(options.hierarchical, Some(Hierarchical::Cutout));
+        assert_eq!(options.mode, Some(FitMode::Polygon));
+        assert_eq!(options.filter_speckle, Some(7));
+        assert_eq!(options.color_precision, Some(5));
+        assert_eq!(options.gradient_step, Some(24));
+        assert_eq!(options.max_colors, Some(9));
+        assert_eq!(options.simplify, Some(1.5));
+        assert_eq!(options.adaptive, Some(true));
+        assert_eq!(options.watershed_detail, Some(200));
+    }
+
+    #[test]
+    fn cli_palette_is_parsed_from_the_command_line() {
+        use crate::color::Rgb;
+
+        let cli =
+            Cli::try_parse_from(["vectorise", "--palette", "#f00,0f0", "a.png"]).expect("parses");
+        assert_eq!(
+            cli.trace_options().expect("valid").palette,
+            Some(vec![Rgb::new(255, 0, 0), Rgb::new(0, 255, 0)])
+        );
+    }
+
+    #[test]
+    fn cli_palette_is_read_from_a_file() {
+        use crate::color::Rgb;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("palette.txt");
+        std::fs::write(&file, "#ff0000\n#00ff00\n").expect("write");
+
+        let cli = Cli::try_parse_from([
+            "vectorise".as_ref(),
+            "--palette-file".as_ref(),
+            file.as_os_str(),
+            "a.png".as_ref(),
+        ])
+        .expect("parses");
+        assert_eq!(
+            cli.trace_options().expect("valid").palette,
+            Some(vec![Rgb::new(255, 0, 0), Rgb::new(0, 255, 0)])
+        );
+    }
+
+    #[test]
+    fn cli_missing_palette_file_is_a_typed_error() {
+        let cli = Cli::try_parse_from(["vectorise", "--palette-file", "no/such/file", "a.png"])
+            .expect("parses");
+        assert!(matches!(
+            cli.trace_options(),
+            Err(super::TraceOptionsError::PaletteFile { .. })
+        ));
+    }
+
+    #[test]
+    fn cli_bad_palette_entry_is_a_typed_error() {
+        let cli =
+            Cli::try_parse_from(["vectorise", "--palette", "#f00,nope", "a.png"]).expect("parses");
+        assert!(matches!(
+            cli.trace_options(),
+            Err(super::TraceOptionsError::Palette { .. })
+        ));
+    }
+
+    #[test]
+    fn cli_rejects_conflicting_palette_and_threshold_flags() {
+        for conflicting in [
+            vec![
+                "vectorise",
+                "--palette",
+                "#fff",
+                "--palette-file",
+                "p.txt",
+                "a.png",
+            ],
+            vec!["vectorise", "--threshold", "10", "--adaptive", "a.png"],
+        ] {
+            let err = Cli::try_parse_from(conflicting.clone()).expect_err("rejected");
+            assert_eq!(
+                err.kind(),
+                clap::error::ErrorKind::ArgumentConflict,
+                "{conflicting:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_rejects_out_of_range_tracing_values() {
+        for bad in [
+            vec!["vectorise", "--color-precision", "9", "a.png"],
+            vec!["vectorise", "--color-precision", "0", "a.png"],
+            vec!["vectorise", "--filter-speckle", "129", "a.png"],
+        ] {
+            let err = Cli::try_parse_from(bad.clone()).expect_err("rejected");
+            assert_eq!(
+                err.kind(),
+                clap::error::ErrorKind::ValueValidation,
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

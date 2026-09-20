@@ -1,2 +1,6 @@
 cognitive-complexity-threshold = 15
 too-many-arguments-threshold = 6
+
+# Product and type names that read as camel case but are prose, not code.
+# `..` keeps clippy's own default list rather than replacing it.
+doc-valid-idents = ["VTracer", "VectorDoc", "ShapeDoc", "ColorImage", "SVGO", ".."]
