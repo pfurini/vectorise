@@ -3,28 +3,28 @@ source: tests/cleanup.rs
 expression: table
 ---
 fixture  degradation      auto   off_bytes  auto_bytes  off_fid  auto_fid
-disc     clean            d0s0        173         173  0.9955   0.9955
-disc     blur1.5          d0s2      10618         173  0.9906   0.9958
-disc     blur3            d0s3      37459        6187  0.9852   0.9938
-disc     soft             d0s3      19614         173  0.9899   0.9959
-disc     jpeg30           d3s0       9399         527  0.9919   0.9945
-disc     blur1.5+jpeg50   d3s2      25088         172  0.9903   0.9941
-badge    clean            d0s0        231         231  0.9984   0.9984
-badge    blur1.5          d0s2      10805        1524  0.9856   0.9957
-badge    blur3            d0s3      35180        8700  0.9738   0.9902
-badge    soft             d0s2      17986        2062  0.9827   0.9923
-badge    jpeg30           d3s0       7035         228  0.9945   0.9962
-badge    blur1.5+jpeg50   d3s2      21674        1525  0.9838   0.9935
-star     clean            d0s0       2268        2268  0.9919   0.9919
-star     blur1.5          d0s2      25248        3399  0.9847   0.9922
-star     blur3            d0s3      65536       17253  0.9770   0.9899
-star     soft             d0s2      36264        6463  0.9832   0.9918
-star     jpeg30           d3s0      20984        6093  0.9905   0.9916
-star     blur1.5+jpeg50   d3s2      41613        4457  0.9843   0.9904
-logo     clean            d0s0        875         875  0.9953   0.9953
-logo     blur1.5          d0s2      19738        2040  0.9845   0.9945
-logo     blur3            d0s3      57560       11497  0.9732   0.9902
-logo     soft             d0s2      31724        2914  0.9831   0.9929
-logo     jpeg30           d3s0      18848        1239  0.9907   0.9937
-logo     blur1.5+jpeg50   d3s2      34829        1454  0.9834   0.9937
-total 550749 -> 81627 bytes
+disc     clean            d0s0        170         170  0.995    0.995
+disc     blur1.5          d0s2      11000         170  0.991    0.996
+disc     blur3            d0s3      37000        6200  0.985    0.994
+disc     soft             d0s3      20000         170  0.990    0.996
+disc     jpeg30           d3s0       9400         530  0.992    0.994
+disc     blur1.5+jpeg50   d3s2      25000         170  0.990    0.994
+badge    clean            d0s0        230         230  0.998    0.998
+badge    blur1.5          d0s2      11000        1500  0.986    0.996
+badge    blur3            d0s3      35000        8700  0.974    0.990
+badge    soft             d0s2      18000        2100  0.983    0.992
+badge    jpeg30           d3s0       7000         230  0.995    0.996
+badge    blur1.5+jpeg50   d3s2      22000        1500  0.984    0.994
+star     clean            d0s0       2300        2300  0.992    0.992
+star     blur1.5          d0s2      25000        3400  0.985    0.992
+star     blur3            d0s3      66000       17000  0.977    0.990
+star     soft             d0s2      36000        6500  0.983    0.992
+star     jpeg30           d3s0      21000        6100  0.991    0.992
+star     blur1.5+jpeg50   d3s2      42000        4500  0.984    0.990
+logo     clean            d0s0        880         880  0.995    0.995
+logo     blur1.5          d0s2      20000        2000  0.984    0.995
+logo     blur3            d0s3      58000       11000  0.973    0.990
+logo     soft             d0s2      32000        2900  0.983    0.993
+logo     jpeg30           d3s0      19000        1200  0.991    0.994
+logo     blur1.5+jpeg50   d3s2      35000        1500  0.983    0.994
+total 550000 -> 82000 bytes

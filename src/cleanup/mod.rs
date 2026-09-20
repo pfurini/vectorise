@@ -680,6 +680,30 @@ mod tests {
         assert_eq!(CleanupOptions::off().mode, CleanupMode::Off);
     }
 
+    #[test]
+    fn a_second_pass_changes_less_than_the_first_on_every_degraded_fixture() {
+        // The pass is neither idempotent nor a strict contraction in general
+        // (a second Kuwahara pass on a smooth gradient can move slightly more
+        // than the first), so no unbounded property is claimed. On the inputs
+        // it is calibrated for, a second run settles: it changes less than the
+        // first, and nothing at all once the first did nothing.
+        for fixture in Fixture::ALL {
+            for degradation in Degradation::ALL {
+                let name = format!("{} {}", fixture.name(), degradation.name());
+                let (once, first) = cleanup(&degrade(fixture, degradation), auto());
+                let (twice, second) = cleanup(&once, auto());
+                if first.acted() {
+                    assert!(
+                        second.changed_fraction < first.changed_fraction,
+                        "{name}: first {first:?}, second {second:?}"
+                    );
+                } else {
+                    assert_eq!(twice.pixels, once.pixels, "{name}");
+                }
+            }
+        }
+    }
+
     // --- property tests ---------------------------------------------------------------
 
     /// A scene the operators are meant for: flat rectangles on a flat
@@ -773,27 +797,6 @@ mod tests {
             rng_algorithm: proptest::test_runner::RngAlgorithm::ChaCha,
             ..ProptestConfig::default()
         })]
-
-        /// The pass is not idempotent: Kuwahara smooths residual noise a
-        /// little further on a second run, and toggle contrast sharpens a
-        /// very wide blur in steps. What holds, and what matters, is that it
-        /// converges: a second pass never changes more than the first, and
-        /// changes nothing at all once the first did nothing.
-        #[test]
-        fn prop_cleanup_converges_on_its_own_output(scene in scene()) {
-            let image = render(&scene);
-            let (once, first) = cleanup(&image, auto());
-            let (twice, second) = cleanup(&once, auto());
-            prop_assert!(
-                second.changed_fraction <= first.changed_fraction,
-                "first {:?}, second {:?}",
-                first,
-                second
-            );
-            if !first.acted() {
-                prop_assert_eq!(&twice.pixels, &once.pixels);
-            }
-        }
 
         /// Only the sharpening operator is colour-preserving: Kuwahara emits
         /// quadrant means, which are new colours by design. The property

@@ -138,10 +138,12 @@ honest, which is ADR-0011.
   then treats as opaque. That only happens on a degraded input with a hard
   alpha mask, which is rare; `--cleanup off` is the escape hatch, and the
   plan's risk register covers adding any misfiring input to the fixture set.
-- The pass is not idempotent. Kuwahara smooths residual noise a little
-  further on a second run, and toggle contrast sharpens a very wide blur in
-  steps. The plan asked for an idempotency property test; the property is
-  false, and `prop_cleanup_converges_on_its_own_output` asserts what is
-  true instead: a second pass never changes more than the first, and
-  changes nothing once the first did nothing. The pass never has to run
-  twice.
+- The pass is not idempotent, and not a strict contraction either. Kuwahara
+  smooths residual noise a little further on a second run, toggle contrast
+  sharpens a very wide blur in steps, and on a smooth gradient with too few
+  edges to measure a second Kuwahara pass can move slightly more than the
+  first before a third settles. The plan asked for an idempotency property
+  test; the property is false, and no unbounded replacement is claimed.
+  `a_second_pass_changes_less_than_the_first_on_every_degraded_fixture`
+  checks the settling behaviour on the 24-case matrix instead. The pass
+  never has to run twice.

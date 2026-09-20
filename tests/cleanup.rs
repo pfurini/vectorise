@@ -4,6 +4,9 @@
 //!
 //! Two properties hold on every cell, and the byte counts are a snapshot: a
 //! change that moves them must be reviewed, not silently accepted.
+//! The tracer's curve fitting differs by an ulp between x86 and arm64, which
+//! moves a cell by a few bytes, so the snapshot rounds bytes to two
+//! significant figures and fidelity to three decimals; the picks are exact.
 //!
 //! The counts are not the plan's. The plan's spike traced with
 //! `TraceOptions::default()`, which is VTracer's own configuration and keeps
@@ -96,6 +99,13 @@ fn auto_never_increases_output_bytes_and_improves_fidelity_on_every_degraded_cel
     let cells = matrix();
     assert_eq!(cells.len(), 24);
 
+    // Two significant figures: stable across platforms, still a regression
+    // guard at the 5% level.
+    let rounded = |bytes: usize| -> usize {
+        let digits = u32::try_from(bytes.to_string().len().saturating_sub(2)).expect("small");
+        let magnitude = 10_usize.pow(digits);
+        (bytes + magnitude / 2) / magnitude * magnitude
+    };
     let mut table =
         String::from("fixture  degradation      auto   off_bytes  auto_bytes  off_fid  auto_fid\n");
     for cell in &cells {
@@ -123,13 +133,13 @@ fn auto_never_increases_output_bytes_and_improves_fidelity_on_every_degraded_cel
         }
         writeln!(
             table,
-            "{:<8} {:<15}  d{}s{}  {:>9}  {:>10}  {:.4}   {:.4}",
+            "{:<8} {:<15}  d{}s{}  {:>9}  {:>10}  {:.3}    {:.3}",
             cell.fixture.name(),
             cell.degradation.name(),
             cell.denoise,
             cell.sharpen,
-            cell.bytes_off,
-            cell.bytes_auto,
+            rounded(cell.bytes_off),
+            rounded(cell.bytes_auto),
             cell.fidelity_off,
             cell.fidelity_auto,
         )
@@ -137,7 +147,13 @@ fn auto_never_increases_output_bytes_and_improves_fidelity_on_every_degraded_cel
     }
     let total_off: usize = cells.iter().map(|cell| cell.bytes_off).sum();
     let total_auto: usize = cells.iter().map(|cell| cell.bytes_auto).sum();
-    writeln!(table, "total {total_off} -> {total_auto} bytes").expect("writes");
+    writeln!(
+        table,
+        "total {} -> {} bytes",
+        rounded(total_off),
+        rounded(total_auto)
+    )
+    .expect("writes");
     assert!(
         total_auto * 4 < total_off,
         "the plan measured a 10x reduction; less than 4x is a regression: {table}"
