@@ -465,6 +465,85 @@ fn cli_reports_a_missing_palette_file_as_an_io_error() {
         .code(74);
 }
 
+// --- reporting ---------------------------------------------------------------------
+
+#[test]
+fn cli_stats_reports_one_line_per_file_and_a_total() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+    fixtures::place(dir.path(), "rect.png", &fixtures::rect_png());
+
+    let assert = vectorise()
+        .current_dir(dir.path())
+        .args(["--stats", "disc.png", "rect.png"])
+        .assert()
+        .success();
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf-8");
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert_eq!(lines.len(), 3, "two files and a total: {stderr}");
+    assert!(lines[0].contains("disc.png -> disc.svg"), "{stderr}");
+    assert!(lines[1].contains("rect.png -> rect.svg"), "{stderr}");
+    assert!(lines[2].starts_with("total: 2 file(s)"), "{stderr}");
+    assert!(
+        !stderr.contains("fidelity"),
+        "no fidelity without --verify: {stderr}"
+    );
+}
+
+#[test]
+fn cli_verify_adds_a_fidelity_score() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+
+    let assert = vectorise()
+        .current_dir(dir.path())
+        .args(["--stats", "--verify", "disc.png"])
+        .assert()
+        .success();
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf-8");
+    let score: f64 = stderr
+        .split("fidelity ")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .expect("a fidelity score")
+        .parse()
+        .expect("a number");
+    assert!(
+        score > 0.98,
+        "a traced disc comes back nearly exactly: {score}"
+    );
+}
+
+#[test]
+fn cli_stats_json_writes_one_object_per_line_to_stdout() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fixtures::place(dir.path(), "disc.png", &fixtures::disc_png());
+    fixtures::place(dir.path(), "rect.png", &fixtures::rect_png());
+
+    let assert = vectorise()
+        .current_dir(dir.path())
+        .args(["--stats-json", "--verify", "disc.png", "rect.png"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf-8");
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 2, "one object per file: {stdout}");
+
+    for (line, name) in lines.iter().zip(["disc", "rect"]) {
+        let value: serde_json::Value = serde_json::from_str(line).expect("valid JSON");
+        assert_eq!(value["input"], format!("{name}.png"));
+        assert_eq!(value["output"], format!("{name}.svg"));
+        assert!(value["output_bytes"].as_u64().expect("bytes") > 0);
+        assert!(value["fidelity"].as_f64().expect("a score") > 0.9);
+    }
+
+    let disc: serde_json::Value = serde_json::from_str(lines[0]).expect("valid JSON");
+    assert_eq!(disc["primitives"]["circles"], 1, "{stdout}");
+}
+
 // --- interruption and isolation ---------------------------------------------------
 
 #[cfg(unix)]

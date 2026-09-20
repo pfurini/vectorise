@@ -42,12 +42,19 @@ fn main() -> ProcessExitCode {
 /// Run the batch and report it.
 fn convert(plan: &Plan, options: &Options, cli: &Cli) -> ProcessExitCode {
     let report = vectorise::run(plan, options, cli.job_count());
+
     for (job, error) in &report.failed {
         eprintln!("error: {}: {error}", job.input.display());
     }
-    if !cli.quiet {
+    if cli.stats_json {
+        print_stats_json(&report);
+    }
+    if cli.stats {
+        print_stats(&report);
+    } else if !cli.quiet {
         summarize(&report);
     }
+
     ExitCode::from(&report).into()
 }
 
@@ -60,6 +67,30 @@ fn summarize(report: &RunReport) {
         eprintln!("info: converted {converted} file(s)");
     } else {
         eprintln!("info: converted {converted} file(s), {failed} failed");
+    }
+}
+
+/// `--stats`: one line per file and a total, on stderr, for a person.
+fn print_stats(report: &RunReport) {
+    for stats in &report.stats {
+        eprintln!("{}", stats.to_line());
+    }
+    eprintln!("{}", report.totals().to_line());
+}
+
+/// `--stats-json`: one JSON object per file, on stdout, for a script.
+///
+/// A file whose numbers cannot be serialized is skipped with a warning rather
+/// than taking the run down: the conversion itself already succeeded.
+fn print_stats_json(report: &RunReport) {
+    for stats in &report.stats {
+        match serde_json::to_string(stats) {
+            Ok(line) => println!("{line}"),
+            Err(error) => eprintln!(
+                "warn: {}: cannot report stats as JSON: {error}",
+                stats.input.display()
+            ),
+        }
     }
 }
 

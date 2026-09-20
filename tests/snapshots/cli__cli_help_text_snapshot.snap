@@ -147,6 +147,15 @@ Output quality:
           The writer already emits minimal markup; the optimizer rewrites path data on top of that.
           Turn it off to keep the output exactly as the writer produced it.
 
+      --verify
+          Render the result and report how close it came to the input
+
+      --stats
+          Report what the conversion did, one line per file plus a total
+
+      --stats-json
+          Report what the conversion did as one JSON object per line, on stdout
+
   -p, --precision <N>
           Decimal places kept on every coordinate
           

@@ -7,11 +7,22 @@ Release profile from `Cargo.toml`: `lto = "fat"`, `codegen-units = 1`,
 Re-measure at the end of every phase that adds a dependency, and explain any
 jump of more than 500 KB.
 
+## End of Phase 9
+
+| Build | Size | Notes |
+|---|---|---|
+| `target/release/vectorise` | 9 968 160 | The shipping binary with `--verify` and `--stats`. |
+| end of Phase 8 | 9 438 752 | Before `resvg`, `usvg`, and `serde_json`. |
+
+The 529 408 bytes added in Phase 9 are the renderer `--verify` needs plus the
+JSON writer `--stats-json` needs. `usvg` was already linked by the optimizer,
+so only `resvg` and `serde_json` are new code.
+
 ## End of Phase 8
 
 | Build | Size | Notes |
 |---|---|---|
-| `target/release/vectorise` | 9 438 752 | The shipping binary, now that `main` calls the whole pipeline. |
+| `target/release/vectorise` | 9 438 752 | The shipping binary, once `main` calls the whole pipeline. |
 | pipeline without the CLI (Phase 7 probe) | 8 725 552 | A throwaway example calling decode, trace, fit, write, optimize. |
 
 The jump from 1.1 MB (decode only) to 8.7 MB is `oxvg_optimiser` and its CSS
@@ -47,7 +58,7 @@ The further 0.7 MB from the probe to the shipping binary is `clap` with
 | 5 | `kurbo`, `tiny-skia` | small; both are compact pure-Rust libraries (the Phase 0 spike linked them for ~400 KB on top of decode) |
 | 7 | `oxvg_optimiser`, `oxvg_ast` | measured +7.6 MB, dominated by `lightningcss` and `parcel_selectors` (see `docs/blockers.md` B-001) |
 | 8 | `rayon`, `tracing`, `tracing-subscriber`, `anyhow` | moderate; `tracing-subscriber` is the larger half |
-| 9 | `resvg`, `usvg`, `serde_json` | moderate; `usvg` brings a full SVG parser |
+| 9 | `resvg`, `usvg`, `serde_json` | measured +529 KB; `usvg` was already linked by the optimizer |
 
 ## How to reproduce
 

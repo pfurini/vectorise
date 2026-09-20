@@ -181,6 +181,18 @@ pub struct Cli {
     #[arg(long, help_heading = "Output quality")]
     pub no_optimize: bool,
 
+    /// Render the result and report how close it came to the input.
+    #[arg(long, help_heading = "Output quality")]
+    pub verify: bool,
+
+    /// Report what the conversion did, one line per file plus a total.
+    #[arg(long, help_heading = "Output quality")]
+    pub stats: bool,
+
+    /// Report what the conversion did as one JSON object per line, on stdout.
+    #[arg(long, help_heading = "Output quality")]
+    pub stats_json: bool,
+
     /// Decimal places kept on every coordinate.
     #[arg(
         short,
@@ -341,6 +353,7 @@ impl Cli {
             writer: self.writer_options(),
             optimize: !self.no_optimize,
             force: self.force,
+            verify: self.verify,
         })
     }
 
@@ -788,6 +801,21 @@ mod tests {
                 .expect("parses");
         let error = missing_file.options().expect_err("rejected");
         assert_eq!(Cli::exit_code_for(&error), ExitCode::Io);
+    }
+
+    #[test]
+    fn cli_verify_and_stats_are_off_by_default() {
+        let cli = Cli::try_parse_from(["vectorise", "a.png"]).expect("parses");
+        assert!(!cli.verify);
+        assert!(!cli.stats);
+        assert!(!cli.stats_json);
+        assert!(!cli.options().expect("valid").verify);
+
+        let cli =
+            Cli::try_parse_from(["vectorise", "--verify", "--stats", "--stats-json", "a.png"])
+                .expect("parses");
+        assert!(cli.verify && cli.stats && cli.stats_json);
+        assert!(cli.options().expect("valid").verify);
     }
 
     #[test]

@@ -51,9 +51,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thread count, and keep going after one file fails (exit 1, with the failing
   file named).
 - `--quiet` and `-v`/`-vv`/`-vvv`.
+- `--verify` renders the result at the input's pixel size and reports
+  `1 - mean absolute error` (ADR-0008).
+- `--stats` reports what each conversion did, one line per file plus a total,
+  on stderr; `--stats-json` reports the same numbers as one JSON object per
+  line on stdout (ADR-0007).
+- Benchmarks (`cargo bench`) and `docs/perf.md`. A 1024x1024 illustration
+  converts in 34.6 ms, against a 1.5 s target; the shape pass is 5.1% of the
+  pipeline, after two optimizations that made it 2.3x faster.
 - `docs/adr/0001-language-and-stack.md`, `docs/adr/0002-output-dir-flattens.md`,
   `docs/adr/0003-preset-auto.md`, `docs/adr/0004-no-rotated-rectangles.md`,
   `docs/adr/0005-no-group-merging.md`, `docs/adr/0006-optimizer-is-lossless.md`,
-  `docs/shape-detection.md`, `docs/size.md`.
+  `docs/adr/0007-serde-for-stats-json.md`,
+  `docs/adr/0008-fidelity-is-mean-absolute-error.md`,
+  `docs/shape-detection.md`, `docs/perf.md`, `docs/size.md`.
 
 [Unreleased]: https://github.com/pfurini/vectorise/compare/HEAD

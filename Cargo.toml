@@ -29,20 +29,27 @@ kurbo = "0.13"
 oxvg_ast = { version = "0.0.8", default-features = false, features = ["roxmltree", "serialize", "visitor", "selectors"] }
 oxvg_optimiser = { version = "0.0.8", default-features = false }
 rayon = "1"
+resvg = { version = "0.45", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tempfile = "3.27.0"
 thiserror = "2.0.20"
 tiny-skia = "0.11"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "env-filter"] }
+usvg = { version = "0.45", default-features = false }
 vtracer = "=1.0.0-alpha.4"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 insta = "1.48"
 predicates = "3.1.4"
 proptest = "1.11"
-resvg = { version = "0.45", default-features = false }
-usvg = { version = "0.45", default-features = false }
+
+[[bench]]
+name = "pipeline"
+harness = false
 
 [profile.release]
 lto = "fat"

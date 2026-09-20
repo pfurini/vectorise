@@ -16,8 +16,8 @@ is still markup a human can read and edit.
 One self-contained binary. No runtime dependencies, no subprocesses, no network.
 
 > **Status: under construction.** The repository is being built phase by phase
-> against `IMPLEMENTATION_PLAN.md`. Conversion works end to end; `--verify`,
-> `--stats`, and the release artifacts are still to come.
+> against `IMPLEMENTATION_PLAN.md`. Everything below works; the release
+> artifacts are what remain.
 
 ## Install
 
@@ -92,6 +92,9 @@ Shapes:
 
 Output quality:
       --no-optimize                 Skip the optimizer pass
+      --verify                      Render the result and report fidelity
+      --stats                       One line per file plus a total, on stderr
+      --stats-json                  One JSON object per file, on stdout
   -p, --precision <N>               Coordinate decimals        [default: 2]
 
 Runtime:
@@ -101,6 +104,23 @@ Runtime:
 ```
 
 `vectorise --help` prints the full text, with a sentence on each option.
+
+### Reporting
+
+```sh
+$ vectorise --stats --verify logo.png
+logo.png -> logo.svg  280 -> 164 bytes (59%)  2 colors  2 shapes (1 circle, 0 ellipse, 1 rect, 0 rounded, 0 path, 0 cmds)  1 ms fidelity 0.9949
+total: 1 file(s)  280 -> 164 bytes (59%)  2 shapes, 0 paths  7 ms
+```
+
+`--verify` renders the SVG back at the input's pixel size and reports
+`1 - mean absolute error`, so 1.0 means every pixel matched. `--stats-json`
+prints the same numbers as one JSON object per line on stdout, leaving stderr
+for messages:
+
+```sh
+vectorise --stats-json icons/*.png | jq -s 'map(.output_bytes) | add'
+```
 
 ### Tuning
 

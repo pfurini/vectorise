@@ -19,8 +19,12 @@
 //!    original outline with [`crate::geom::verify::symmetric_difference`]; the
 //!    first candidate within tolerance wins.
 //!
-//! The candidates are tried in a fixed order, circle first and ellipse last, so
-//! the output is deterministic and the most compact element wins ties.
+//! Candidates are tried in a fixed order, so the output is deterministic. The
+//! structural detectors go first: a rectangle is recognized by its corners and
+//! costs nothing to reject, while the moment-based circle and ellipse are
+//! proposed for *any* outline and have to be rasterized to be ruled out. No
+//! candidate can steal another's shape, because a curve is never a rectangle
+//! and a rectangle is never a curve.
 //!
 //! # Tolerance
 //!
@@ -78,6 +82,16 @@ const CIRCLE_SNAP_FRACTION: f64 = 0.02;
 /// Accuracy of the perimeter estimate. A hundredth of a pixel is far finer
 /// than the tolerance it feeds.
 const PERIMETER_ACCURACY: f64 = 0.01;
+
+/// How far a candidate's bounding box may differ from the outline's, as a
+/// fraction, before it is rejected without rasterizing.
+///
+/// This is a performance filter, and its only failure mode is a missed
+/// detection. Ten percent is far above the error of a real fit (a fitted
+/// circle's box is within a percent of the traced one) and far below the error
+/// of a wrong one (a square offered as the circle of equal area is out by
+/// 12.8%), so nothing that would have passed verification is dropped.
+const BBOX_SLACK: f64 = 0.10;
 
 /// What a shape turned out to be.
 #[derive(Debug, Clone, PartialEq)]
@@ -333,18 +347,22 @@ fn best_candidate(
         .find(|&candidate| accepts(outline, area, tolerance, candidate))
 }
 
-/// Every candidate worth measuring, most compact first.
+/// Every candidate worth measuring, cheapest to rule out first.
 fn proposals(outline: &BezPath, options: &ShapeFitOptions) -> Vec<Candidate> {
     let mut proposals = Vec::with_capacity(4);
 
-    if options.detect.circle {
-        proposals.extend(circle_candidate(outline));
-    }
+    // Structural, and usually absent: a shape that is not a rectangle produces
+    // no rectangle candidate, so nothing is rasterized.
     if options.detect.rect {
         proposals.extend(rect_candidate(outline));
     }
     if options.detect.rounded_rect {
         proposals.extend(rounded_rect_candidate(outline));
+    }
+    // Moment-based, and always present: every outline has moments, so these
+    // are the ones that cost a raster comparison to reject.
+    if options.detect.circle {
+        proposals.extend(circle_candidate(outline));
     }
     if options.detect.ellipse
         && let Some(ellipse) = ellipse_candidate(outline)
@@ -400,15 +418,29 @@ fn usable_ellipse(candidate: Candidate, options: &ShapeFitOptions) -> Option<Can
 
 /// Is this candidate close enough to the outline?
 ///
-/// The area check is free and exact: the symmetric difference of two shapes is
+/// Two cheap checks run before the raster comparison, which is the expensive
+/// part. The area check is exact: the symmetric difference of two shapes is
 /// never smaller than the difference of their areas, so a candidate that fails
-/// it cannot pass the raster comparison either.
+/// it cannot pass the comparison either. The bounding-box check is a heuristic
+/// (see [`BBOX_SLACK`]).
 fn accepts(outline: &BezPath, area: f64, tolerance: f64, candidate: Candidate) -> bool {
     let path = candidate.to_path();
     if (path.area().abs() - area).abs() > tolerance {
         return false;
     }
+    if !boxes_agree(outline.bounding_box(), path.bounding_box()) {
+        return false;
+    }
     symmetric_difference(outline, &path) <= tolerance
+}
+
+/// Are these two bounding boxes the same shape and size, roughly?
+fn boxes_agree(outline: kurbo::Rect, candidate: kurbo::Rect) -> bool {
+    let agrees = |a: f64, b: f64| {
+        let larger = a.abs().max(b.abs());
+        larger <= f64::EPSILON || (a - b).abs() / larger <= BBOX_SLACK
+    };
+    agrees(outline.width(), candidate.width()) && agrees(outline.height(), candidate.height())
 }
 
 /// A verified candidate as the primitive the writer will emit.
@@ -922,6 +954,23 @@ mod tests {
             .abs()
                 < f64::EPSILON,
             "zero means zero, every term included"
+        );
+    }
+
+    #[test]
+    fn a_candidate_whose_box_is_the_wrong_shape_is_rejected_before_rasterizing() {
+        use super::boxes_agree;
+        use kurbo::Rect;
+
+        let outline = Rect::new(0.0, 0.0, 100.0, 100.0);
+        assert!(boxes_agree(outline, Rect::new(0.0, 0.0, 100.5, 99.5)));
+        assert!(
+            !boxes_agree(outline, Rect::new(0.0, 0.0, 112.8, 112.8)),
+            "the equal-area circle of a square is 12.8% wider"
+        );
+        assert!(
+            boxes_agree(Rect::ZERO, Rect::ZERO),
+            "nothing agrees with nothing"
         );
     }
 

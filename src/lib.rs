@@ -49,7 +49,9 @@ pub mod optimize;
 pub mod output;
 pub mod plan;
 pub mod shapes;
+pub mod stats;
 pub mod trace;
+pub mod verify;
 pub mod writer;
 
 use std::path::{Path, PathBuf};
@@ -61,7 +63,9 @@ use crate::error::ExitCode;
 use crate::optimize::OptimizeError;
 use crate::output::WriteError;
 use crate::shapes::ShapeFitOptions;
+use crate::stats::{Stats, Totals};
 use crate::trace::{TraceError, TraceOptions};
+use crate::verify::VerifyError;
 use crate::writer::WriterOptions;
 
 pub use plan::{Job, Plan, PlanError, PlanOptions, PlanProblem, plan};
@@ -81,6 +85,8 @@ pub struct Options {
     pub optimize: bool,
     /// Overwrite an output that already exists.
     pub force: bool,
+    /// Render the result and measure how close it came to the input.
+    pub verify: bool,
 }
 
 impl Options {
@@ -105,10 +111,12 @@ impl Options {
 }
 
 /// What one conversion produced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Converted {
     /// The SVG document, ready to write.
     pub svg: String,
+    /// What the conversion did, in numbers.
+    pub stats: Stats,
 }
 
 /// Why a conversion failed. Every variant names the file it is about.
@@ -136,6 +144,14 @@ pub enum ConvertError {
     /// The output could not be written.
     #[error(transparent)]
     Write(#[from] WriteError),
+    /// `--verify` could not measure the result.
+    #[error("{path}: {source}")]
+    Verify {
+        /// The input being converted.
+        path: PathBuf,
+        /// What the verifier said.
+        source: VerifyError,
+    },
 }
 
 impl ConvertError {
@@ -147,7 +163,9 @@ impl ConvertError {
     pub fn path(&self) -> &Path {
         match self {
             Self::Decode(error) => error.path(),
-            Self::Trace { path, .. } | Self::Optimize { path, .. } => path,
+            Self::Trace { path, .. } | Self::Optimize { path, .. } | Self::Verify { path, .. } => {
+                path
+            }
             Self::Write(error) => error.path(),
         }
     }
@@ -158,7 +176,13 @@ impl ConvertError {
 /// # Errors
 ///
 /// [`ConvertError`], carrying the file the failure is about.
-pub fn convert_one(input: &Path, options: &Options) -> Result<Converted, ConvertError> {
+pub fn convert_one(
+    input: &Path,
+    output: &Path,
+    options: &Options,
+) -> Result<Converted, ConvertError> {
+    let started = std::time::Instant::now();
+
     let image = decode::decode(input, options.decode)?;
     tracing::debug!(
         input = %input.display(),
@@ -174,34 +198,49 @@ pub fn convert_one(input: &Path, options: &Options) -> Result<Converted, Convert
     tracing::debug!(input = %input.display(), shapes = traced.shapes.len(), "traced");
 
     let fitted = shapes::fit_shapes(&traced, &options.shapes);
-    let primitives = fitted
-        .shapes
-        .iter()
-        .filter(|shape| shape.prim.is_primitive())
-        .count();
     tracing::debug!(
         input = %input.display(),
         shapes = fitted.shapes.len(),
-        primitives,
         "fitted"
     );
 
     let written = writer::write_svg(&fitted, &options.writer);
-    if !options.optimize {
-        return Ok(Converted { svg: written });
-    }
+    let svg = if options.optimize {
+        let optimized = optimize::optimize(&written).map_err(|source| ConvertError::Optimize {
+            path: input.to_path_buf(),
+            source,
+        })?;
+        tracing::debug!(
+            input = %input.display(),
+            before = written.len(),
+            after = optimized.len(),
+            "optimized"
+        );
+        optimized
+    } else {
+        written
+    };
 
-    let optimized = optimize::optimize(&written).map_err(|source| ConvertError::Optimize {
-        path: input.to_path_buf(),
-        source,
-    })?;
-    tracing::debug!(
-        input = %input.display(),
-        before = written.len(),
-        after = optimized.len(),
-        "optimized"
-    );
-    Ok(Converted { svg: optimized })
+    let mut stats = Stats::of(input, output, &fitted, &svg);
+    if options.verify {
+        let measured =
+            verify::fidelity(&image, &svg, options.decode.background).map_err(|source| {
+                ConvertError::Verify {
+                    path: input.to_path_buf(),
+                    source,
+                }
+            })?;
+        tracing::debug!(input = %input.display(), score = measured.score, "verified");
+        stats.fidelity = Some(measured.score);
+    }
+    stats.elapsed_ms = elapsed_ms(started);
+
+    Ok(Converted { svg, stats })
+}
+
+/// Milliseconds since `started`, saturating rather than wrapping.
+fn elapsed_ms(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// Convert one job and write its output.
@@ -210,7 +249,7 @@ pub fn convert_one(input: &Path, options: &Options) -> Result<Converted, Convert
 ///
 /// [`ConvertError`], carrying the file the failure is about.
 pub fn convert_job(job: &Job, options: &Options) -> Result<Converted, ConvertError> {
-    let converted = convert_one(&job.input, options)?;
+    let converted = convert_one(&job.input, &job.output, options)?;
     output::write_atomically(&job.output, &converted.svg, options.force)?;
     Ok(converted)
 }
@@ -220,8 +259,12 @@ pub fn convert_job(job: &Job, options: &Options) -> Result<Converted, ConvertErr
 pub struct RunReport {
     /// Jobs whose output was written.
     pub ok: Vec<Job>,
+    /// What each successful job did, in the same order as `ok`.
+    pub stats: Vec<Stats>,
     /// Jobs that failed, with the reason.
     pub failed: Vec<(Job, ConvertError)>,
+    /// Wall-clock time for the batch.
+    pub elapsed_ms: u64,
 }
 
 impl RunReport {
@@ -229,6 +272,14 @@ impl RunReport {
     #[must_use]
     pub const fn is_complete(&self) -> bool {
         self.failed.is_empty()
+    }
+
+    /// The batch's numbers, added up.
+    #[must_use]
+    pub fn totals(&self) -> Totals {
+        let mut totals = Totals::of(&self.stats);
+        totals.elapsed_ms = self.elapsed_ms;
+        totals
     }
 }
 
@@ -255,6 +306,7 @@ impl From<&RunReport> for ExitCode {
 /// report has two lists rather than being a `Result`.
 #[must_use]
 pub fn run(plan: &Plan, options: &Options, jobs: usize) -> RunReport {
+    let started = std::time::Instant::now();
     let results: Vec<(Job, Result<Converted, ConvertError>)> = if jobs <= 1 {
         plan.jobs
             .iter()
@@ -279,17 +331,19 @@ pub fn run(plan: &Plan, options: &Options, jobs: usize) -> RunReport {
     let mut report = RunReport::default();
     for (job, result) in results {
         match result {
-            Ok(_) => {
+            Ok(converted) => {
                 tracing::info!(
                     input = %job.input.display(),
                     output = %job.output.display(),
                     "converted"
                 );
                 report.ok.push(job);
+                report.stats.push(converted.stats);
             }
             Err(error) => report.failed.push((job, error)),
         }
     }
+    report.elapsed_ms = elapsed_ms(started);
     report
 }
 
@@ -332,8 +386,11 @@ mod tests {
         let input = dir.path().join("disc.png");
         std::fs::write(&input, disc_png()).expect("write");
 
-        let converted = convert_one(&input, &Options::new()).expect("converts");
+        let output = dir.path().join("disc.svg");
+        let converted = convert_one(&input, &output, &Options::new()).expect("converts");
         assert!(converted.svg.starts_with("<svg "), "{}", converted.svg);
+        assert_eq!(converted.stats.primitives.circles, 1);
+        assert_eq!(converted.stats.output, output);
         assert!(
             converted.svg.contains("<circle"),
             "the disc is detected: {}",
@@ -351,7 +408,8 @@ mod tests {
             optimize: false,
             ..Options::new()
         };
-        let converted = convert_one(&input, &options).expect("converts");
+        let converted =
+            convert_one(&input, &dir.path().join("disc.svg"), &options).expect("converts");
         assert!(converted.svg.contains("<circle"));
     }
 
@@ -361,7 +419,8 @@ mod tests {
         let input = dir.path().join("broken.png");
         std::fs::write(&input, b"not a png").expect("write");
 
-        let error = convert_one(&input, &Options::new()).expect_err("a corrupt file fails");
+        let error = convert_one(&input, &dir.path().join("broken.svg"), &Options::new())
+            .expect_err("a corrupt file fails");
         assert_eq!(error.path(), input);
         assert!(matches!(error, ConvertError::Decode(_)), "{error:?}");
     }
@@ -487,6 +546,8 @@ mod tests {
         // job did attempt things, so it is a partial failure.
         let report = RunReport {
             ok: Vec::new(),
+            stats: Vec::new(),
+            elapsed_ms: 0,
             failed: vec![(
                 Job {
                     input: PathBuf::from("a.png"),
